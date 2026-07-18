@@ -126,6 +126,24 @@ class Orchestrator:
             self._auto_publish()
             self._promote_scheduled_publishes()
         self._auto_engage()
+        self._tick_analytics()
+        self._tick_health()
+
+    def _tick_analytics(self) -> None:
+        from .analytics import AnalyticsCollector, analytics_enabled
+        if analytics_enabled():
+            try:
+                AnalyticsCollector(self.db).collect()
+            except Exception:
+                pass
+
+    def _tick_health(self) -> None:
+        from .api_health import ApiHealthMonitor, health_enabled
+        if health_enabled():
+            try:
+                ApiHealthMonitor(self.db).probe()
+            except Exception:
+                pass
 
     # ── 目标调度 ───────────────────────────────────────────────────────────
     def _load_goals(self) -> list[dict[str, Any]]:

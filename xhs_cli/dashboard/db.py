@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS publish_tasks (
  id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, title TEXT NOT NULL,
  body TEXT NOT NULL, topics_json TEXT NOT NULL DEFAULT '[]', images_json TEXT NOT NULL DEFAULT '[]',
  status TEXT NOT NULL DEFAULT 'pending_review', approved_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
- final_note_id TEXT, final_url TEXT, source_dir TEXT, error TEXT, created_at TEXT NOT NULL,
+ final_note_id TEXT, final_url TEXT, source_dir TEXT, content_fingerprint TEXT, error TEXT, created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL, FOREIGN KEY(account_id) REFERENCES accounts(id));
 CREATE TABLE IF NOT EXISTS publish_attempts (
  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, started_at TEXT NOT NULL,

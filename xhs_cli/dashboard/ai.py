@@ -9,6 +9,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .governance import contains_sensitive_information, evaluate_content
+from .image_gen import ImageGenService, auto_image_gen_enabled
 from .operations import OperationsStore
 from .utils import json_dumps, json_loads, now_iso
 
@@ -239,6 +240,18 @@ class AIService:
                             now_iso(),
                         ),
                     )
+                if auto_image_gen_enabled() and draft_id:
+                    try:
+                        gen = ImageGenService()
+                        if gen.enabled:
+                            images = gen.generate_for_draft(result.title, result.content)
+                            if images:
+                                self.store.db.execute(
+                                    "UPDATE drafts SET images_json=? WHERE id=?",
+                                    (json_dumps([str(p) for p in images]), draft_id),
+                                )
+                    except Exception:
+                        pass  # image-gen is best-effort, never block drafting
             return "complete"
         except Exception as exc:
             self.store.db.execute(

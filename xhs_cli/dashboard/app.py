@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .analytics import AnalyticsCollector
+from .api_health import ApiHealthMonitor
 from .browser import AccountBrowserService
 from .collector import CollectorService
 from .config import DashboardConfig
@@ -53,6 +55,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         poll_seconds=config.queue_poll_seconds,
     )
     extension = DashboardExtension(db, config, browsers, queue)
+    analytics = AnalyticsCollector(db)
+    health_monitor = ApiHealthMonitor(db)
     orchestrator = Orchestrator(db, config, store, queue, extension.store, extension.engagement, extension.ai)
     executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="xhs-interactive")
     root = Path(__file__).parent
@@ -391,6 +395,39 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, "publish task not found")
         attempts = db.fetchall("SELECT * FROM publish_attempts WHERE task_id=? ORDER BY id DESC", (task_id,))
         return {"ok": True, "data": {"task": task, "attempts": attempts}}
+
+    @app.get("/analytics", response_class=HTMLResponse)
+    def analytics_page(request: Request, days: int = 30, account_id: int = 0):
+        data = analytics.summary(account_id=None if account_id == 0 else account_id, days=days)
+        ranking = analytics.account_ranking(days=days)
+        return templates.TemplateResponse("analytics.html", {
+            "request": request,
+            "data": data,
+            "ranking": ranking,
+            "days": days,
+            "account_id": account_id,
+            "accounts": db.fetchall("SELECT id,alias FROM accounts"),
+        })
+
+    @app.get("/api-health", response_class=HTMLResponse)
+    def api_health_page(request: Request):
+        return templates.TemplateResponse("api_health.html", {
+            "request": request,
+            "latest": health_monitor.latest(),
+        })
+
+    @app.get("/api/analytics/summary")
+    def api_analytics_summary(days: int = 30, account_id: int = 0):
+        return analytics.summary(account_id=None if account_id == 0 else account_id, days=days)
+
+    @app.get("/api/health/status")
+    def api_health_status():
+        return {"ok": True, "data": health_monitor.latest()}
+
+    @app.post("/api/health/probe")
+    def api_health_probe():
+        results = health_monitor.probe()
+        return {"ok": True, "data": results}
 
     extension.install(app, templates)
     orchestrator.install(app)
