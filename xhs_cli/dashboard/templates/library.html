@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}素材库{% endblock %}{% block content %}
+<header><div><p class="eyebrow">MARKDOWN LIBRARY</p><h1>爆款素材库</h1><p>正文、互动指标、评论和图片已按笔记归档。</p></div></header>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>笔记</th><th>作者</th><th>互动</th><th>爆款分</th><th>导出</th></tr></thead><tbody>{% for note in notes %}<tr><td><b>{{ note.title or '无标题' }}</b><small>{{ note.note_id }} · {{ note.media_type }}</small></td><td>{{ note.author_name }}<small>{{ note.author_id }}</small></td><td>赞 {{ note.likes }} · 藏 {{ note.collects }}<small>评 {{ note.comments }} · 分享 {{ note.shares }}</small></td><td><b class="score">{{ note.viral_score }}</b></td><td><span class="status {{ note.export_status }}">{{ note.export_status or '未导出' }}</span><small>{{ note.directory or '' }}</small></td></tr>{% else %}<tr><td colspan="5" class="empty">暂无素材，先运行爆款搜索</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

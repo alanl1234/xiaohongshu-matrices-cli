@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.playwright-mcp/
+xhs_login_page.png
+
+# ── Open-source hygiene ──
+.pytest-p0-desktop/
+.pytest-tmp/
+orchestrator_goals.json
+.coverage
+*.log
+
+# ── Runtime artifacts (never commit) ──
+data/
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
+Thumbs.db

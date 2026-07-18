@@ -1,0 +1,21 @@
+xiaohongshu-matrices-cli
+
+This product is a derivative work based on xiaohongshu-cli.
+
+Original work:
+  xiaohongshu-cli
+  Copyright 2024 jackwener
+  https://github.com/jackwener/xiaohongshu-cli
+  Licensed under the Apache License, Version 2.0.
+
+This product includes software developed by jackwener as part of
+xiaohongshu-cli, and retains the original copyright and license in
+accordance with the Apache License, Version 2.0.
+
+Modifications in this fork (a governance-gated orchestration layer under
+xhs_cli/dashboard/orchestrator.py and related documentation) are also
+licensed under the Apache License, Version 2.0.
+
+Third-party components:
+- Camoufox (MIT License, Copyright (c) daijro) is vendored under
+  vendor/camoufox-python/ and consumed as a local uv source.

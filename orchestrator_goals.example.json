@@ -1,0 +1,21 @@
+[
+  {
+    "id": "camping-gear",
+    "name": "露营装备选题",
+    "objective": "挖掘小红书露营装备相关的爆款选题、用户痛点与可二创角度",
+    "target_audience": "一二线城市 25-35 岁周末出行人群",
+    "enabled": true,
+    "cadence_hours": 24,
+    "max_candidates": 8,
+    "account_id": null,
+    "persona_id": null
+  },
+  {
+    "id": "city-walk",
+    "name": "城市漫步选题",
+    "objective": "挖掘城市漫步 / city walk 相关的爆款内容与评论痛点",
+    "enabled": true,
+    "cadence_hours": 48,
+    "max_candidates": 6
+  }
+]
