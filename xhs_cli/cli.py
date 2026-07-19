@@ -43,7 +43,29 @@ def _fix_windows_encoding() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 
+def _check_signing_libs() -> None:
+    """Warn if signing dependencies look outdated or broken (non-blocking)."""
+    try:
+        import pkg_resources
+    except ImportError:
+        return
+    for pkg, min_version in [("xhshow", "0.1.9"), ("pycryptodome", "3.20")]:
+        try:
+            dist = pkg_resources.get_distribution(pkg)
+            parsed = pkg_resources.parse_version
+            if parsed(dist.version) < parsed(min_version):
+                logging.warning(
+                    "%s %s 低于建议版本 %s，签名可能失效", pkg, dist.version, min_version
+                )
+        except pkg_resources.DistributionNotFound:
+            logging.warning("缺少签名依赖 %s，功能可能不可用", pkg)
+
+
 _fix_windows_encoding()
+try:
+    _check_signing_libs()
+except Exception:
+    pass  # 非关键路径，不影响功能
 
 
 @click.group()

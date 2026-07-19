@@ -29,6 +29,28 @@ class AccountBrowserBusy(RuntimeError):
     """Raised when an account persistent profile is already in use."""
 
 
+class _CamoufoxNotReady(RuntimeError):
+    """Camoufox binary not found — user needs to run `python -m camoufox fetch`."""
+
+
+def _try_launch_camoufox(**kwargs):
+    """Launch Camoufox with a friendly error when the binary is missing."""
+    try:
+        from camoufox.sync_api import Camoufox  # noqa: PLC0415
+    except ImportError as exc:
+        msg = "camoufox 包未安装，请先执行: uv sync"
+        raise _CamoufoxNotReady(msg) from exc
+    try:
+        return Camoufox(**kwargs)
+    except (FileNotFoundError, RuntimeError) as exc:
+        msg = (
+            "Camoufox 浏览器未下载或无法启动。"
+            "请先执行: python -m camoufox fetch\n"
+            f"原始错误: {exc}"
+        )
+        raise _CamoufoxNotReady(msg) from exc
+
+
 class AccountBrowserService:
     @staticmethod
     def _secure_profile(profile: Path) -> str:
@@ -279,9 +301,8 @@ class AccountBrowserService:
         self.db.update("accounts", account_id, login_status="binding", last_error=None)
         try:
             from camoufox.addons import DefaultAddons
-            from camoufox.sync_api import Camoufox
 
-            with Camoufox(
+            with _try_launch_camoufox(
                 headless=False,
                 locale="zh-CN",
                 persistent_context=True,
@@ -323,12 +344,11 @@ class AccountBrowserService:
         account = self._account(account_id)
         profile = Path(account["profile_dir"]).resolve()
         from camoufox.addons import DefaultAddons
-        from camoufox.sync_api import Camoufox
 
         with self._browser_slot(account_id):
             self._prepare_profile(profile)
             try:
-                with Camoufox(
+                with _try_launch_camoufox(
                     headless=headless,
                     locale="zh-CN",
                     persistent_context=True,

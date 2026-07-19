@@ -8,7 +8,7 @@ version = "0.9.0"
 description = "A CLI and local dashboard for Xiaohongshu search, collection, and reviewed publishing"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "jackwener", email = "jakevingoo@gmail.com" }]
 keywords = ["xiaohongshu", "xhs", "redbook", "cli", "api"]
 classifiers = [

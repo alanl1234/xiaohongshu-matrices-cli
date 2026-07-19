@@ -17,6 +17,15 @@ SDK_VERSION = "4.2.6"
 APP_ID = "xhs-pc-web"
 PLATFORM = "macOS"
 
+# XHS main API signing versions — bump these when XHS pushes a client update
+XHS_APP_VERSION = "4.86.0"
+XHS_MAGIC_SALT = -596800761
+
+# Creator platform signing
+CREATOR_SIGN_SVN = "56"
+CREATOR_SIGN_APP_ID = "ugc"
+CREATOR_SIGN_VERSION = "1"
+
 # Config directory
 CONFIG_DIR_NAME = ".xiaohongshu-cli"
 COOKIE_FILE = "cookies.json"

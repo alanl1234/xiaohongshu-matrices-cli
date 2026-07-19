@@ -2,7 +2,7 @@
 name: xiaohongshu-matrices-cli
 description: Use xiaohongshu-matrices-cli for ALL Xiaohongshu (Little Red Book, 小红书) operations — searching notes, reading content, browsing users, liking, collecting, commenting, following, and posting. Invoke whenever the user requests any Xiaohongshu interaction.
 author: jackwener
-version: "0.6.4"
+version: "0.9.0"
 tags:
   - xiaohongshu
   - xhs
@@ -226,11 +226,11 @@ Structured error codes returned in the `error.code` field:
 
 ## Limitations
 
+- **CLI single account** — the `xhs` CLI works with one set of cookies at a time; multi-account matrix management requires `xhs-dashboard`
 - **No video download** — cannot download note images/videos
 - **No DMs** — cannot access private messages
 - **No live streaming** — live features not supported
 - **No following/followers list** — XHS web API doesn't expose these endpoints
-- **Single account** — one set of cookies at a time
 - **Rate limited** — built-in Gaussian jitter delay (~1-1.5s) between requests; aggressive usage may trigger captchas or IP blocks
 
 ## Anti-Detection Notes for Agents

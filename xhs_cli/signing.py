@@ -15,7 +15,7 @@ from __future__ import annotations
 from xhshow import CryptoConfig, SessionManager, Xhshow
 from xhshow.utils.url_utils import extract_uri  # noqa: F401 — re-export
 
-from .constants import APP_ID, PLATFORM, SDK_VERSION, USER_AGENT
+from .constants import APP_ID, PLATFORM, SDK_VERSION, USER_AGENT, XHS_APP_VERSION, XHS_MAGIC_SALT
 
 # ─── macOS/Chrome configuration ────────────────────────────────────────────
 
@@ -35,12 +35,12 @@ _config = CryptoConfig().with_overrides(
         "x1": SDK_VERSION,
         "x2": PLATFORM,
         "x3": APP_ID,
-        "x4": "4.86.0",
+        "x4": XHS_APP_VERSION,
         "x5": "",
         "x6": "",
         "x7": "",
         "x8": "",
-        "x9": -596800761,
+        "x9": XHS_MAGIC_SALT,
         "x10": 0,
         "x11": "normal",
     },

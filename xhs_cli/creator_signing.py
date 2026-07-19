@@ -15,6 +15,8 @@ import time
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
+from .constants import CREATOR_SIGN_APP_ID, CREATOR_SIGN_SVN, CREATOR_SIGN_VERSION
+
 AES_KEY = b"7cc4adla5ay0701v"
 AES_IV = b"4uzjr7mbsibcaldp"
 
@@ -56,10 +58,10 @@ def sign_creator(
     payload = _aes_encrypt(base64.b64encode(plaintext.encode("utf-8")).decode("utf-8"))
 
     envelope = {
-        "signSvn": "56",
+        "signSvn": CREATOR_SIGN_SVN,
         "signType": "x2",
-        "appId": "ugc",
-        "signVersion": "1",
+        "appId": CREATOR_SIGN_APP_ID,
+        "signVersion": CREATOR_SIGN_VERSION,
         "payload": payload,
     }
 

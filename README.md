@@ -489,6 +489,10 @@ git clone git@github.com:jackwener/xiaohongshu-cli.git .agents/skills/xiaohongsh
 
 第三方依赖 `camoufox` 以源码形式 vendored 在 `vendor/camoufox-python/`，通过 `pyproject.toml` 的 `[tool.uv.sources]` 作为本地 uv 源引入（MIT License, Copyright daijro）。运行数据（cookie / token / 笔记库）默认落在用户主目录（`~/.xiaohongshu-cli`），不会进入仓库。
 
+## 免责声明
+
+本项目为技术研究与学习工具。自动化操作可能违反小红书用户协议，使用者应自行承担账号风控、限流、封禁等一切后果。作者不对因使用本项目导致的任何账号损失或其他损害承担责任。
+
 ## License
 
 Apache-2.0
