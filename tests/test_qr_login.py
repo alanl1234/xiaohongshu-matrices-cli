@@ -219,6 +219,32 @@ def test_qrcode_login_falls_back_when_browser_backend_unavailable(monkeypatch):
     }
 
 
+def test_qrcode_login_falls_back_when_browser_launch_raises(monkeypatch):
+    # Catch the real-world gap: Camoufox.__enter__ raises a non-BrowserQrLoginUnavailable
+    # error (missing binary / no display / missing system library). Login must still
+    # fall back to the terminal QR code instead of crashing.
+    def _boom(**kwargs):
+        raise RuntimeError("Camoufox failed to launch: no display available")
+
+    monkeypatch.setattr("xhs_cli.qr_login._browser_assisted_qrcode_login", _boom)
+    monkeypatch.setattr(
+        "xhs_cli.qr_login._http_qrcode_login",
+        lambda **kwargs: {
+            "a1": "a1-http",
+            "webId": "webid-http",
+            "web_session": "http-session",
+        },
+    )
+
+    cookies = qrcode_login(timeout_s=1, prefer_browser_assisted=True)
+
+    assert cookies == {
+        "a1": "a1-http",
+        "webId": "webid-http",
+        "web_session": "http-session",
+    }
+
+
 def test_normalize_browser_cookies_uses_allowlist():
     cookies = _normalize_browser_cookies(
         [

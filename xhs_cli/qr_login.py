@@ -533,5 +533,18 @@ def qrcode_login(
             return _browser_assisted_qrcode_login(on_status=on_status, timeout_s=timeout_s)
         except BrowserQrLoginUnavailable as exc:
             logger.info("Browser-assisted QR login unavailable, falling back to HTTP flow: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            # Any unexpected failure while opening or driving the browser (missing
+            # binary, no display, missing system libraries, etc.) must not abort
+            # login. The Camoufox launch raises a non-BrowserQrLoginUnavailable
+            # error in those cases, so fall back to the terminal QR code flow.
+            logger.warning(
+                "Browser-assisted QR login failed (%s); falling back to terminal QR code.",
+                exc,
+            )
+            _emit_status(
+                on_status,
+                "⚠️ 浏览器无法启动，已自动切换到终端二维码（用小红书 App 扫码）。",
+            )
 
     return _http_qrcode_login(on_status=on_status, timeout_s=timeout_s)

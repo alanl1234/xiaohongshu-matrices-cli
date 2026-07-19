@@ -136,6 +136,8 @@ xiaohongshu-matrices-cli supports multiple authentication methods:
 Use `--cookie-source <browser>` to specify a browser explicitly, or `--qrcode` for browser-assisted QR login.
 Other authenticated commands automatically retry once with fresh browser cookies when the saved session has expired.
 
+> **Browser-assisted QR login** uses the bundled [Camoufox](https://github.com/daijro/camoufox) browser. On a fresh machine you must fetch the browser binary once (per OS): `python -m camoufox fetch`. If Camoufox cannot launch (missing binary, no display, or missing system libraries — common on headless/remote machines), `xhs login --qrcode` automatically falls back to a terminal-rendered QR code. You can also force the terminal QR directly with `xhs login --qrcode --no-browser`.
+
 ### Cookie TTL
 
 Saved cookies are valid for **7 days** by default. After that, the client automatically attempts to refresh from the browser. If browser extraction fails, the existing cookies are used with a warning.
@@ -437,6 +439,8 @@ xiaohongshu-matrices-cli 支持多种认证方式：
 Cookie 保存后有效期 **7 天**，超时后自动尝试从浏览器刷新。
 
 `xhs login` 会自动尝试所有已安装浏览器，使用第一个有有效 Cookie 的浏览器。也可用 `--cookie-source <browser>` 指定浏览器，或 `--qrcode` 使用 browser-assisted 二维码登录。其他需认证命令在 session 过期时会自动重试一次。
+
+> **browser-assisted 二维码登录**使用内置的 [Camoufox](https://github.com/daijro/camoufox) 浏览器。新机器需先下载浏览器二进制（每个系统一次）：`python -m camoufox fetch`。若 Camoufox 无法启动（二进制缺失、无显示环境、或缺系统库——在无显示/远程机器上很常见），`xhs login --qrcode` 会自动回退到终端二维码。也可以直接用 `xhs login --qrcode --no-browser` 强制走终端二维码。
 
 ## 常见问题
 

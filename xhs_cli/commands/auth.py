@@ -59,8 +59,15 @@ def _print_status_summary(user: dict[str, object]) -> None:
 @click.option(
     "--qrcode", "use_qrcode", is_flag=True, default=False, help="Login via QR code (scan with Xiaohongshu app)"
 )
+@click.option(
+    "--no-browser",
+    "no_browser",
+    is_flag=True,
+    default=False,
+    help="With --qrcode: render the QR in the terminal only (headless/remote, no browser window)",
+)
 @click.pass_context
-def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool):
+def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool, no_browser: bool):
     """Log in by extracting cookies from browser, or via QR code."""
 
     if use_qrcode:
@@ -68,7 +75,9 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
         def _login_with_qrcode() -> None:
             from ..qr_login import qrcode_login
 
-            cookies = qrcode_login(prefer_browser_assisted=True)
+            # Default to the browser-assisted flow, but allow forcing the terminal
+            # QR code when no display is available (headless / remote sessions).
+            cookies = qrcode_login(prefer_browser_assisted=not no_browser)
 
             # Verify by fetching user info (may return guest=true briefly)
             import time
