@@ -113,7 +113,9 @@ xhs delete-comment <note_id> <cmt_id> # Delete own comment
 xhs my-notes                           # List own notes (v2 creator endpoint)
 xhs my-notes --page 1                 # Next page
 xhs post --title "标题" --body "正文" --images img.jpg  # Post note
-xhs delete <note_id>                   # Delete note
+# 指定话题 id 强制关联（搜索失败/无结果时避免话题变纯文字不可点击）：
+xhs post --title "t" --body "b #考研" --images img.jpg --topic-id "考研=65a1b2c3..."
+xhs delete <note_id>                   # Delete a PUBLISHED note (不是草稿)
 xhs delete <note_id> -y               # Skip confirmation
 
 # ─── Notifications ────────────────────────────────
@@ -123,6 +125,14 @@ xhs notifications --type likes        # 赞和收藏 notifications
 xhs notifications --type connections   # 新增关注 notifications
 
 ```
+
+> **Global `--account` option.** Every authenticated command accepts
+> `--account <id|alias|xhs_user_id>` to bridge that dashboard account's cookies
+> **without touching the global `cookies.json`**. This is the recommended way to
+> target a specific account (e.g. `xhs --account <XHS_USER_ID> post --title …`).
+> Run `xhs status` to list available dashboard accounts.
+> Note: `--account` is a *global* flag, so it must come **before** the subcommand
+> (`xhs --account X status`, not `xhs status --account X`).
 
 ## Authentication
 
@@ -141,6 +151,30 @@ Other authenticated commands automatically retry once with fresh browser cookies
 ### Cookie TTL
 
 Saved cookies are valid for **7 days** by default. After that, the client automatically attempts to refresh from the browser. If browser extraction fails, the existing cookies are used with a warning.
+
+### Multi-account: `--account`
+
+If you run the local dashboard (`xhs-dashboard`, scanning at http://127.0.0.1:8765),
+each account's cookies live in an encrypted browser profile. The CLI can bridge
+any of them on demand:
+
+```
+xhs --account <XHS_USER_ID> status        # show that account's state
+xhs --account <alias> read <url>        # read as that account
+xhs --account <id> post --title …       # publish AS that account
+```
+
+This never writes `cookies.json`, so switching target accounts can't cross-post.
+Use `xhs status` (no `--account`) to list all ready dashboard accounts.
+
+### Draft Management
+
+The CLI **does not manage drafts**. There is no `drafts list` / `drafts delete`
+command, and the Xiaohongshu draft API endpoints return 404 — do **not** probe
+them. Drafts created in the creator studio (or by the browser publisher) can only
+be viewed/deleted from the creator UI at
+<https://creator.xiaohongshu.com> → 草稿箱. The `xhs delete` command operates
+**only on already-published notes**.
 
 ### Short-Index Navigation
 

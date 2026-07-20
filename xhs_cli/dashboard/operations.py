@@ -23,6 +23,7 @@ OPERATION_KINDS = {
     "dm_sync",
     "dm_reply",
     "dm_outbound",
+    "image_decompose",
 }
 
 SCHEMA = """
@@ -116,6 +117,27 @@ CREATE TABLE IF NOT EXISTS sensitive_handoff_events (
  event_type TEXT NOT NULL DEFAULT 'sensitive_information_detected', created_at TEXT NOT NULL,
  FOREIGN KEY(thread_id) REFERENCES engagement_threads(id) ON DELETE CASCADE,
  FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS roles (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+ description TEXT NOT NULL DEFAULT '', style_ref TEXT NOT NULL DEFAULT '', config_json TEXT NOT NULL DEFAULT '{}',
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS account_roles (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, role_id INTEGER NOT NULL,
+ is_primary INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+ UNIQUE(account_id, role_id),
+ FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+ FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS source_account_mappings (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_xhs_user_id TEXT NOT NULL, derivative_account_id INTEGER NOT NULL,
+ role_id INTEGER, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+ UNIQUE(source_xhs_user_id, derivative_account_id),
+ FOREIGN KEY(derivative_account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+ FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS image_prompts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_xhs_user_id TEXT NOT NULL, note_id TEXT NOT NULL DEFAULT '',
+ image_index INTEGER NOT NULL DEFAULT 0, image_url TEXT NOT NULL DEFAULT '', local_path TEXT NOT NULL DEFAULT '',
+ prompt_words TEXT NOT NULL DEFAULT '{}', decomposed_by TEXT NOT NULL DEFAULT '',
+ authorization_status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_operation_queue_claim ON operation_queue(status,available_at,id);
 CREATE INDEX IF NOT EXISTS idx_engagement_tasks_status ON engagement_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
@@ -197,7 +219,7 @@ class OperationsStore:
         )
 
     def create_agent_run(self, kind: str, payload: dict[str, Any]) -> int:
-        if kind not in {"search_brief", "screen_results", "material_research", "agent_draft"}:
+        if kind not in {"search_brief", "screen_results", "material_research", "agent_draft", "image_decompose"}:
             raise ValueError("不支持的 AI 任务类型")
         if contains_sensitive_information(json_dumps(payload)):
             raise ValueError("AI 任务输入包含敏感信息，禁止保存或发送到模型")
@@ -344,13 +366,13 @@ class OperationsStore:
             con.execute(
                 "UPDATE operation_queue SET status='manual',last_error='执行中断，需人工核验',updated_at=? "
                 "WHERE status='running' AND lease_until<? "
-                "AND kind NOT IN ('search_brief','screen_results','material_research','agent_draft')",
+                "AND kind NOT IN ('search_brief','screen_results','material_research','agent_draft','image_decompose')",
                 (now, now),
             )
             con.execute(
                 "UPDATE operation_queue SET status='queued',lease_until=NULL,updated_at=? "
                 "WHERE status='running' AND lease_until<? "
-                "AND kind IN ('search_brief','screen_results','material_research','agent_draft')",
+                "AND kind IN ('search_brief','screen_results','material_research','agent_draft','image_decompose')",
                 (now, now),
             )
             row = con.execute(
@@ -381,6 +403,134 @@ class OperationsStore:
             "UPDATE operation_queue SET status=?,lease_until=NULL,last_error=?,updated_at=? WHERE id=?",
             (status, error, now_iso(), item.id),
         )
+
+    # ── 角色库：共享人设定义，与具体账号解耦，支持一风格绑多账号 ──
+    def create_role(self, name: str, slug: str, **values: Any) -> int:
+        if contains_sensitive_information(json_dumps({"name": name, "slug": slug, **values})):
+            raise ValueError("角色配置不得包含手机号、微信号或地址")
+        slug = slug.strip()
+        existing = self.db.fetchone("SELECT id FROM roles WHERE slug=?", (slug,))
+        if existing:
+            return int(existing["id"])
+        now = now_iso()
+        return self.db.execute(
+            """INSERT INTO roles(name,slug,description,style_ref,config_json,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?)""",
+            (
+                name.strip(),
+                slug,
+                values.get("description", ""),
+                values.get("style_ref", ""),
+                json_dumps(values.get("config", {})),
+                now,
+                now,
+            ),
+        )
+
+    def get_role(self, role_id: int) -> dict[str, Any] | None:
+        return self.db.fetchone("SELECT * FROM roles WHERE id=?", (role_id,))
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        return self.db.fetchall("SELECT * FROM roles ORDER BY id")
+
+    def bind_account_role(self, account_id: int, role_id: int, is_primary: bool = False) -> int:
+        existing = self.db.fetchone(
+            "SELECT id FROM account_roles WHERE account_id=? AND role_id=?", (account_id, role_id)
+        )
+        if existing:
+            if is_primary:
+                self.db.execute("UPDATE account_roles SET is_primary=0 WHERE account_id=?", (account_id,))
+                self.db.execute("UPDATE account_roles SET is_primary=1 WHERE id=?", (existing["id"],))
+            return int(existing["id"])
+        if is_primary:
+            self.db.execute("UPDATE account_roles SET is_primary=0 WHERE account_id=?", (account_id,))
+        return self.db.execute(
+            "INSERT INTO account_roles(account_id,role_id,is_primary,created_at) VALUES(?,?,?,?)",
+            (account_id, role_id, int(is_primary), now_iso()),
+        )
+
+    def unbind_account_role(self, account_id: int, role_id: int) -> None:
+        self.db.execute(
+            "DELETE FROM account_roles WHERE account_id=? AND role_id=?", (account_id, role_id)
+        )
+
+    def list_account_roles(self, account_id: int) -> list[dict[str, Any]]:
+        return self.db.fetchall(
+            "SELECT r.*, ar.is_primary FROM account_roles ar JOIN roles r ON r.id=ar.role_id "
+            "WHERE ar.account_id=? ORDER BY ar.id",
+            (account_id,),
+        )
+
+    def create_source_mapping(
+        self, source_xhs_user_id: str, derivative_account_id: int, role_id: int | None = None, note: str = ""
+    ) -> int:
+        if contains_sensitive_information(json_dumps({"source": source_xhs_user_id, "note": note})):
+            raise ValueError("源账号映射不得包含手机号、微信号或地址")
+        src = source_xhs_user_id.strip()
+        existing = self.db.fetchone(
+            "SELECT id FROM source_account_mappings WHERE source_xhs_user_id=? AND derivative_account_id=?",
+            (src, derivative_account_id),
+        )
+        if existing:
+            return int(existing["id"])
+        return self.db.execute(
+            """INSERT INTO source_account_mappings(
+            source_xhs_user_id,derivative_account_id,role_id,note,created_at) VALUES(?,?,?,?,?)""",
+            (src, derivative_account_id, role_id, note, now_iso()),
+        )
+
+    def list_source_mappings(self, source_xhs_user_id: str | None = None) -> list[dict[str, Any]]:
+        if source_xhs_user_id:
+            return self.db.fetchall(
+                "SELECT * FROM source_account_mappings WHERE source_xhs_user_id=? ORDER BY id",
+                (source_xhs_user_id,),
+            )
+        return self.db.fetchall("SELECT * FROM source_account_mappings ORDER BY id")
+
+    def create_image_prompt(
+        self,
+        source_xhs_user_id: str,
+        note_id: str,
+        image_index: int,
+        prompt_words: dict[str, Any],
+        image_url: str = "",
+        local_path: str = "",
+        decomposed_by: str = "",
+        authorization_status: str = "pending",
+    ) -> int:
+        serialized = json_dumps(prompt_words)
+        if contains_sensitive_information(serialized):
+            authorization_status = "needs_review"
+        return self.db.execute(
+            """INSERT INTO image_prompts(
+            source_xhs_user_id,note_id,image_index,image_url,local_path,prompt_words,
+            decomposed_by,authorization_status,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+            (
+                source_xhs_user_id.strip(),
+                note_id,
+                image_index,
+                image_url,
+                local_path,
+                serialized,
+                decomposed_by,
+                authorization_status,
+                now_iso(),
+            ),
+        )
+
+    def list_image_prompts(
+        self, source_xhs_user_id: str | None = None, note_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_xhs_user_id:
+            clauses.append("source_xhs_user_id=?")
+            params.append(source_xhs_user_id)
+        if note_id:
+            clauses.append("note_id=?")
+            params.append(note_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return self.db.fetchall(f"SELECT * FROM image_prompts{where} ORDER BY id", tuple(params))
 
     def recent_content(self, account_id: int, action: str, days: int = 30) -> list[str]:
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat()

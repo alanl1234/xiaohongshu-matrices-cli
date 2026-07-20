@@ -21,6 +21,10 @@ Usage:
     xhs unread
     xhs post --title "..." --body "..." --images img.png
     xhs delete <id_or_url> [-y]
+
+Global options:
+    --account <id|别名|xhs_user_id>   指定 dashboard 账号，自动桥接其 cookie
+    --cookie-source <browser>         从浏览器读取 cookie（默认 auto）
 """
 
 from __future__ import annotations
@@ -78,11 +82,19 @@ except Exception:
     show_default=True,
     help="Browser to read cookies from (auto = try all installed browsers)",
 )
+@click.option(
+    "--account",
+    type=str,
+    default=None,
+    help="目标 dashboard 账号（id / 别名 / xhs_user_id）。指定后自动桥接该账号的 cookie，"
+    "无需修改全局 cookies.json",
+)
 @click.pass_context
-def cli(ctx, verbose: bool, cookie_source: str):
+def cli(ctx, verbose: bool, cookie_source: str, account: str | None):
     """xhs — Xiaohongshu CLI via reverse-engineered API 📕"""
     ctx.ensure_object(dict)
     ctx.obj["cookie_source"] = cookie_source
+    ctx.obj["account"] = account
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(name)s %(message)s")

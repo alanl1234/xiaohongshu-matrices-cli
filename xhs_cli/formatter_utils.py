@@ -156,6 +156,11 @@ def print_info(message: str) -> None:
     console.print(f"[dim]ℹ[/dim] {message}")
 
 
+def print_warning(message: str) -> None:
+    """Print a non-fatal warning (e.g. topics that failed to link)."""
+    console.print(f"[yellow]⚠️ {message}[/yellow]")
+
+
 # ─── Data formatting ───────────────────────────────────────────────────────
 
 

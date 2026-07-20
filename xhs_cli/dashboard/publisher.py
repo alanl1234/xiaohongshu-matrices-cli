@@ -168,6 +168,69 @@ class BrowserPublisher:
             page.wait_for_timeout(1_000)
         raise PublishFlowError("等待图片上传完成超时", "upload", retryable=True)
 
+    def _ensure_image_tab(self, page: Any) -> None:
+        """Make sure the editor is on the 上传图文 (image) tab, not 上传视频.
+
+        The creator studio opens on 上传视频 by default, and 上传图文 appears
+        BOTH as a top-level tab AND inside the 发布笔记 dropdown menu. That
+        shared text made naive `:has-text('上传图文')` selectors ambiguous and
+        caused earlier browser-publish attempts to silently land in drafts.
+        Strategy:
+          1. if an image-upload input is already visible -> done;
+          2. click the TOP-LEVEL 上传图文 tab (exclude dropdown menu items);
+          3. fallback: open 发布笔记 dropdown, then click the 上传图文 menu item.
+        All failures are swallowed; the subsequent upload-input lookup will
+        surface a clear selector timeout if the tab truly isn't reachable.
+        """
+        image_input = page.locator("input[type=file][accept*='image']")
+        try:
+            if image_input.count() and image_input.first.is_visible():
+                return
+        except Exception:
+            pass
+
+        # 2) top-level tab (NOT inside a popup / role=menuitem)
+        for sel in [
+            "div[role=tab]:has-text('上传图文')",
+            "div.tab-item:has-text('上传图文')",
+            "a:has-text('上传图文')",
+        ]:
+            loc = page.locator(sel).first
+            try:
+                if loc.count() and loc.is_visible() and loc.get_attribute("role") != "menuitem":
+                    loc.click(timeout=3000)
+                    if image_input.first.is_visible():
+                        return
+            except Exception:
+                continue
+
+        # 3) fallback: 发布笔记 dropdown -> 上传图文 menu item
+        try:
+            dropdown = page.locator(
+                "button:has-text('发布笔记'), [class*='dropdown']:has-text('发布笔记')"
+            ).first
+            if dropdown.count() and dropdown.is_visible():
+                dropdown.click(timeout=3000)
+                page.wait_for_timeout(800)
+                menu_item = page.locator(
+                    "div[role=menuitem]:has-text('上传图文'), li:has-text('上传图文')"
+                ).first
+                menu_item.click(force=True, timeout=3000)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _read_draft_count(page: Any) -> int | None:
+        """Best-effort read of the 草稿箱 badge count (None if undeterminable)."""
+        try:
+            el = page.locator("text=草稿箱").first
+            if el.count():
+                m = re.search(r"(\d+)", el.inner_text(timeout=2000))
+                return int(m.group(1)) if m else 0
+        except Exception:
+            return None
+        return None
+
     @staticmethod
     def _extract_notes(data: dict[str, Any]) -> list[dict[str, Any]]:
         notes = data.get("notes") or data.get("note_list") or data.get("data", {}).get("notes") or []
@@ -213,6 +276,8 @@ class BrowserPublisher:
         self.db.update("publish_attempts", attempt_id, stage="opening_creator")
         page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=90_000)
         self._detect_blocker(page)
+        # The studio defaults to 上传视频; switch to 上传图文 first.
+        self._ensure_image_tab(page)
         try:
             before_notes = self._creator_notes(context)
             before_ids: set[str] | None = {self._note_id(item) for item in before_notes if self._note_id(item)}
@@ -236,9 +301,23 @@ class BrowserPublisher:
         body.fill(rendered_body)
         self._detect_blocker(page)
 
-        publish = self._first_visible(page, ["button:has-text('发布')", "div.publishBtn", "button.publishBtn"], "发布")
+        # Prefer the dedicated .publishBtn class and exclude the "发布笔记"
+        # dropdown and "存草稿" buttons, which also contain 发布 text.
+        publish = self._first_visible(
+            page,
+            [
+                "div.publishBtn",
+                "button.publishBtn",
+                "button:has-text('发布'):not(:has-text('笔记')):not(:has-text('草稿'))",
+                "button.primary:has-text('发布')",
+            ],
+            "发布",
+        )
         self._wait_enabled(page, publish)
         self.db.update("publish_attempts", attempt_id, stage="ready_to_submit")
+        # Record the draft-box count so we can detect "saved as draft"
+        # instead of "published".
+        draft_before = self._read_draft_count(page)
         publish.click()
         submitted = now_iso()
         self.db.update("publish_attempts", attempt_id, stage="submitting", submitted_at=submitted)
@@ -262,6 +341,17 @@ class BrowserPublisher:
         verified = self._verify_new_note(context, task, before_ids, success_visible)
         if verified:
             return verified
+
+        # If the draft-box count increased after clicking 发布, the content was
+        # saved as a draft rather than published — fail loudly instead of
+        # reporting spurious success.
+        draft_after = self._read_draft_count(page)
+        if draft_after is not None and draft_before is not None and draft_after > draft_before:
+            raise PublishFlowError(
+                "点击发布后草稿箱计数增加，内容疑似被存为草稿而非发布成功。"
+                "请到 creator.xiaohongshu.com 草稿箱 UI 手动确认/发布。",
+                "saved_as_draft",
+            )
         if success_visible or before_ids is None:
             raise VerificationRequired("发布结果无法得到新增笔记 ID；请人工核验，系统不会自动重发")
         raise PublishFlowError("未检测到发布成功，也未发现本次新增笔记", "unknown_after_submit")

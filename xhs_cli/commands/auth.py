@@ -4,10 +4,11 @@ import time
 
 import click
 
+from ..account_bridge import list_dashboard_accounts
 from ..client import XhsClient
 from ..command_normalizers import normalize_xhs_user_payload
 from ..cookies import clear_cookies, get_cookies
-from ..exceptions import XhsApiError
+from ..exceptions import NoCookieError, XhsApiError
 from ..formatter import (
     console,
     maybe_print_structured,
@@ -143,18 +144,63 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
     )
 
 
+def _safe_dashboard_accounts() -> list[dict[str, object]] | None:
+    """Best-effort dashboard account listing; never raises.
+
+    Returns None when the dashboard is not initialised so callers can decide
+    whether to include it in structured output.
+    """
+    try:
+        return list_dashboard_accounts()
+    except Exception:
+        return None
+
+
+def _print_dashboard_accounts(accounts: list[dict[str, object]] | None) -> None:
+    """Render the dashboard account roster (for `xhs status`)."""
+    if not accounts:
+        return
+    console.print("")
+    console.print("[bold]Dashboard 已登录账号（可用 --account 指定目标）：[/bold]")
+    for acc in accounts:
+        status = acc.get("login_status") or "?"
+        marker = "✓" if status == "ready" else "·"
+        label = acc.get("nickname") or acc.get("alias") or "?"
+        dash = acc.get("xhs_user_id") or ""
+        ident = f"id={acc.get('id')} / xhs_user_id={dash}" if dash else f"id={acc.get('id')}"
+        console.print(
+            f"  [{marker}] {label}  ({ident})  [{status}]"
+            + ("  ⚠️ 无 cookie 文件" if not acc.get("has_cookie_file") else "")
+        )
+
+
 @click.command()
 @structured_output_options
 @click.pass_context
 def status(ctx, as_json: bool, as_yaml: bool):
-    """Check current login status and user info."""
+    """Check current login status and user info.
+
+    Also lists dashboard accounts so you know what --account values are valid.
+    """
 
     def _show_status() -> None:
-        info = run_client_action(ctx, lambda client: client.get_self_info())
+        # Dashboard roster is independent of the cookies.json login — surface it
+        # even when the latter is missing/expired.
+        accounts = _safe_dashboard_accounts()
+        try:
+            info = run_client_action(ctx, lambda client: client.get_self_info())
+        except (XhsApiError, NoCookieError):
+            # Don't pollute structured (--json/--yaml) output with console text.
+            if accounts and not (as_json or as_yaml):
+                _print_dashboard_accounts(accounts)
+            raise
         user = normalize_xhs_user_payload(info)
-
-        if not _emit_payload({"authenticated": True, "user": user}, as_json=as_json, as_yaml=as_yaml):
+        payload: dict[str, object] = {"authenticated": True, "user": user}
+        if accounts is not None:
+            payload["dashboard_accounts"] = accounts
+        if not _emit_payload(payload, as_json=as_json, as_yaml=as_yaml):
             _print_status_summary(user)
+            _print_dashboard_accounts(accounts)
 
     handle_errors(_show_status, as_json=as_json, as_yaml=as_yaml, prefix="Status check failed")
 

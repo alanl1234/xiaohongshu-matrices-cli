@@ -32,7 +32,19 @@ def _cookie_source(ctx) -> str:
 
 
 def get_client(ctx, *, force_refresh: bool = False) -> XhsClient:
-    """Get a local client from the click context."""
+    """Get a local client from the click context.
+
+    If ``--account`` was supplied, cookies are bridged from the matching
+    dashboard account's browser profile — this bypasses the global
+    ``cookies.json`` entirely, so switching target account never mutates
+    global state.
+    """
+    account = ctx.obj.get("account") if ctx.obj else None
+    if account:
+        from ..account_bridge import get_dashboard_account_cookies
+
+        cookies = get_dashboard_account_cookies(account)
+        return XhsClient(cookies)
     _browser, cookies = get_cookies(_cookie_source(ctx), force_refresh=force_refresh)
     return XhsClient(cookies)
 

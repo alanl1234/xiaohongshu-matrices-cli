@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+from .formatter_utils import coerce_int
 
 
 def normalize_xhs_user_payload(info: dict[str, Any]) -> dict[str, object]:
@@ -34,10 +37,10 @@ def normalize_xhs_user_payload(info: dict[str, Any]) -> dict[str, object]:
 
 def normalize_unread_summary(data: dict[str, Any]) -> dict[str, int]:
     return {
-        "mentions": int(data.get("mentions", 0)),
-        "likes": int(data.get("likes", 0)),
-        "connections": int(data.get("connections", 0)),
-        "unread_count": int(data.get("unread_count", 0)),
+        "mentions": coerce_int(data.get("mentions", 0)),
+        "likes": coerce_int(data.get("likes", 0)),
+        "connections": coerce_int(data.get("connections", 0)),
+        "unread_count": coerce_int(data.get("unread_count", 0)),
     }
 
 
@@ -61,6 +64,48 @@ def select_topic_payload(topic_data: Any, fallback_name: str) -> list[dict[str, 
             "type": "topic",
         }
     ]
+
+
+# Characters that never belong in a topic name and break exact search matches.
+_TOPIC_SCRUB = re.compile(r"[^\w\u4e00-\u9fff]")
+
+
+def resolve_topic_payload(client: Any, topic: str, explicit_id: str | None = None):
+    """Resolve one topic string into a hash_tag payload.
+
+    Pipeline:
+      1. ``search_topics(topic)`` -> first match (exact).
+      2. on empty, retry with noise stripped (trailing punctuation/spaces/emoji).
+      3. if still empty and ``explicit_id`` is supplied, use it directly — this
+         lets the user force-link a topic whose search is flaky.
+      4. otherwise the topic cannot be linked and is reported as unresolved.
+
+    A topic that "cannot be linked" becomes plain text in the post body and is
+    NOT clickable on Xiaohongshu — callers should warn the user.
+
+    Returns:
+        ``(payload, missing)`` — ``payload`` is the ``{"id", "name", "type"}``
+        dict, or ``None``; ``missing`` is the topic string when unresolved,
+        else ``None``.
+    """
+    def _search(text: str) -> list[dict[str, str]]:
+        try:
+            data = client.search_topics(text)
+        except Exception:
+            return []
+        return select_topic_payload(data, text)
+
+    matched = _search(topic)
+    if not matched:
+        cleaned = _TOPIC_SCRUB.sub("", topic)
+        if cleaned and cleaned != topic:
+            matched = _search(cleaned)
+
+    if matched:
+        return matched[0], None
+    if explicit_id:
+        return {"id": explicit_id, "name": topic, "type": "topic"}, None
+    return None, topic
 
 
 def resolve_current_user_id(info: dict[str, Any]) -> str:

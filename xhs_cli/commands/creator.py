@@ -4,12 +4,13 @@ import re
 
 import click
 
-from ..command_normalizers import select_topic_payload
+from ..command_normalizers import resolve_topic_payload
 from ..formatter import (
     extract_note_id,
     maybe_print_structured,
     print_info,
     print_success,
+    print_warning,
     render_creator_notes,
 )
 from ..note_refs import save_index_from_notes
@@ -30,6 +31,13 @@ def extract_hashtags(body: str) -> list[str]:
 @click.option("--body", required=True, help="Note body text")
 @click.option("--images", required=True, multiple=True, help="Image file path(s)")
 @click.option("--topic", "topics_flag", multiple=True, help="Topic(s)/hashtag(s) to search and attach")
+@click.option(
+    "--topic-id",
+    "topic_ids_flag",
+    multiple=True,
+    help="显式指定话题 id，格式 KEYWORD=ID（如 --topic-id \"考研=65a1b2...\")。"
+    "当话题搜索失败/无结果时，强制用该 id 关联，避免话题退化为不可点击的纯文字。",
+)
 @click.option("--private", "is_private", is_flag=True, help="Publish as private note")
 @structured_output_options
 @click.pass_context
@@ -39,11 +47,18 @@ def post(
     body: str,
     images: tuple[str, ...],
     topics_flag: tuple[str, ...],
+    topic_ids_flag: tuple[str, ...],
     is_private: bool,
     as_json: bool,
     as_yaml: bool,
 ):
-    """Publish an image note."""
+    """Publish an image note.
+
+    Topics are auto-linked when found via search; use --topic-id KEYWORD=ID to
+    force-link a topic whose search is flaky. Topics that
+    cannot be linked degrade to plain text and are NOT clickable — the command
+    warns when this happens.
+    """
 
     def _publish(client):
         file_ids = []
@@ -63,18 +78,43 @@ def post(
             print_info(f"Found {len(unique_topics)} topics, using first 10")
             unique_topics = unique_topics[:10]
 
-        resolved_topics = []
-        for t in unique_topics:
-            topic_data = client.search_topics(t)
-            resolved_topics.extend(select_topic_payload(topic_data, t))
+        # Explicit KEYWORD=ID overrides for topics that fail to resolve by name.
+        explicit_ids: dict[str, str] = {}
+        for raw in topic_ids_flag:
+            if "=" in raw:
+                key, val = raw.split("=", 1)
+                explicit_ids[key.strip()] = val.strip()
 
-        return client.create_image_note(
+        resolved_topics = []
+        unresolved: list[str] = []
+        for t in unique_topics:
+            payload, miss = resolve_topic_payload(
+                client, t, explicit_id=explicit_ids.get(t)
+            )
+            if payload:
+                resolved_topics.append(payload)
+            if miss:
+                unresolved.append(miss)
+
+        if unresolved:
+            print_warning(
+                f"{len(unresolved)} 个话题未能关联到可点击链接，将作为纯文字发布（不可点击）："
+                + "、".join(f"#{u}" for u in unresolved)
+                + "。可用 --topic-id 关键字=ID 强制关联。"
+            )
+
+        result = client.create_image_note(
             title=title,
             desc=body,
             image_file_ids=file_ids,
             topics=resolved_topics,
             is_private=is_private,
         )
+        # Always surface unlinked topics in structured output so downstream
+        # checks have a stable field (empty list when everything linked).
+        result = dict(result) if isinstance(result, dict) else {"raw": result}
+        result["unresolved_topics"] = [f"#{u}" for u in unresolved]
+        return result
 
     handle_command(
         ctx,
@@ -113,8 +153,14 @@ def my_notes(ctx, page: int, as_json: bool, as_yaml: bool):
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 @click.pass_context
 def delete(ctx, id_or_url: str, as_json: bool, as_yaml: bool, yes: bool):
-    """Delete a note. Experimental: the public web endpoint is unstable."""
+    """Delete a PUBLISHED note (experimental; public endpoint is unstable).
+
+    NOTE: CLI 不支持草稿管理 —— 草稿只能到 creator.xiaohongshu.com 草稿箱 UI 删除，
+    探测草稿 API 端点均返回 404。本命令仅作用于已发布笔记。
+    """
     note_id = extract_note_id(id_or_url)
+    if not note_id:
+        exit_for_error(ValueError("无法从输入中解析出笔记 ID，请检查参数或链接"), as_json=as_json, as_yaml=as_yaml)
 
     if not yes:
         click.confirm(f"Delete note {note_id}?", abort=True)

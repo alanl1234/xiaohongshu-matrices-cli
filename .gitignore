@@ -23,3 +23,17 @@ data/
 *.sqlite3
 .DS_Store
 Thumbs.db
+
+# ── Local / agent artifacts (never commit) ──
+.workbuddy/
+cookies.backup.json
+
+# ── AI research / local analysis products (local data, never commit) ──
+# 账号编号、源账号、风格绑定、图片指令词等均为本地数据，禁止入库。
+AI_RESEARCH_PLAN.md
+PROJECT_REVIEW.md
+wordcard_*.md
+erchuang_*.md
+template_analysis_*.md
+note_*.json
+elegant_publish_image.jpg

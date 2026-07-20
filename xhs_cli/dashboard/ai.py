@@ -12,6 +12,7 @@ from .governance import contains_sensitive_information, evaluate_content
 from .image_gen import ImageGenService, auto_image_gen_enabled
 from .operations import OperationsStore
 from .utils import json_dumps, json_loads, now_iso
+from .vision import ImagePromptWords, VisionService
 
 
 class SearchSubTask(BaseModel):
@@ -197,6 +198,35 @@ class AIService:
                     payload,
                     DraftOutput,
                 )
+            elif run["kind"] == "image_decompose":
+                image = payload.get("image") or payload.get("image_path") or payload.get("image_url")
+                if not image:
+                    raise ValueError("image_decompose 任务缺少 image / image_path / image_url")
+                vs = VisionService()
+                if not vs.configured:
+                    raise RuntimeError("未配置 XHS_VISION_API_KEY；图片拆解不会执行")
+                words = vs.analyze_image(image, ImagePromptWords)
+                model = vs.model
+                raw_index = payload.get("image_index", 0)
+                try:
+                    image_index = int(raw_index)
+                except (TypeError, ValueError):
+                    image_index = 0
+                self.store.create_image_prompt(
+                    source_xhs_user_id=payload.get("source_xhs_user_id", ""),
+                    note_id=str(payload.get("note_id", "")),
+                    image_index=image_index,
+                    prompt_words=words.model_dump(mode="json"),
+                    image_url=str(payload.get("image_url", "")),
+                    local_path=str(payload.get("image_path", "")),
+                    decomposed_by=model,
+                )
+                output = words.model_dump(mode="json")
+                self.store.db.execute(
+                    "UPDATE agent_runs SET provider=?,model=?,status='complete',output_json=?,finished_at=? WHERE id=?",
+                    (vs.name, model, json_dumps(output), now_iso(), run_id),
+                )
+                return "complete"
             else:
                 raise ValueError("不支持的 AI 任务")
             model = getattr(self.provider, "last_model", "")
