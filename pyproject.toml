@@ -9,7 +9,8 @@ description = "A CLI and local dashboard for Xiaohongshu search, collection, and
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "jackwener", email = "jakevingoo@gmail.com" }]
+authors = [{ name = "jackwener" }, { name = "alanl1234" }]
+maintainers = [{ name = "alanl1234" }]
 keywords = ["xiaohongshu", "xhs", "redbook", "cli", "api"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -38,9 +39,9 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.11.0", "mypy>=1.15.0"]
 
 [project.urls]
-Homepage = "https://github.com/jackwener/xiaohongshu-cli"
-Repository = "https://github.com/jackwener/xiaohongshu-cli"
-Issues = "https://github.com/jackwener/xiaohongshu-cli/issues"
+Homepage = "https://github.com/alanl1234/xiaohongshu-matrices-cli"
+Repository = "https://github.com/alanl1234/xiaohongshu-matrices-cli"
+Issues = "https://github.com/alanl1234/xiaohongshu-matrices-cli/issues"
 
 [project.scripts]
 xhs = "xhs_cli.cli:cli"

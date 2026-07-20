@@ -37,3 +37,7 @@ erchuang_*.md
 template_analysis_*.md
 note_*.json
 elegant_publish_image.jpg
+
+# ── Build / packaging artifacts (regenerable) ──
+build/
+.buildenv/

@@ -2,8 +2,9 @@
 
 > 基于 [jackwener/xiaohongshu-cli](https://github.com/jackwener/xiaohongshu-cli)（Apache-2.0）的 fork，新增受治理的自动化编排层。原始版权归 `xiaohongshu-cli`。
 
-[![CI](https://github.com/jackwener/xiaohongshu-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jackwener/xiaohongshu-cli/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://pypi.org/project/xiaohongshu-cli/)
+[![CI](https://github.com/alanl1234/xiaohongshu-matrices-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/alanl1234/xiaohongshu-matrices-cli/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/badge/pypi-xiaohongshu--matrices--cli-blue.svg)](https://pypi.org/project/xiaohongshu-matrices-cli/)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)](https://pypi.org/project/xiaohongshu-matrices-cli/)
 
 A local-first, multi-account matrix CLI for Xiaohongshu (小红书) — search, read, interact, and post across many accounts via a reverse-engineered API 📕
 
@@ -29,15 +30,42 @@ A local-first, multi-account matrix CLI for Xiaohongshu (小红书) — search, 
 
 ## Installation
 
-This project is distributed from source. Clone this repository and sync dependencies with [uv](https://github.com/astral-sh/uv):
+### 快速安装（PyPI + 一键脚本）
+
+已发布到 PyPI，无需克隆源码即可安装（Python ≥ 3.11）：
 
 ```bash
-git clone <你的 GitHub 仓库地址> xiaohongshu-matrices-cli
-cd xiaohongshu-matrices-cli
-uv sync
+pip install --user xiaohongshu-matrices-cli
+python -m camoufox fetch          # 拉取抗检测浏览器内核
+xhs-dashboard                     # 启动本地后台 http://127.0.0.1:8765
 ```
 
-The base project `xiaohongshu-cli` remains available on PyPI if you need the upstream package. To update, pull the latest changes and re-run `uv sync`.
+macOS / Linux 一键安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alanl1234/xiaohongshu-matrices-cli/main/scripts/install.sh | bash
+```
+
+Windows（PowerShell）一键安装：
+
+```powershell
+irm https://raw.githubusercontent.com/alanl1234/xiaohongshu-matrices-cli/main/scripts/install.ps1 | iex
+```
+
+### 从源码安装（开发）
+
+Clone 本仓库并用 [uv](https://github.com/astral-sh/uv) 同步依赖：
+
+```bash
+git clone https://github.com/alanl1234/xiaohongshu-matrices-cli xiaohongshu-matrices-cli
+cd xiaohongshu-matrices-cli
+uv sync --extra dev
+```
+
+### 界面
+
+本工具提供 **命令行 `xhs`** 与 **本地后台 `xhs-dashboard`** 两套界面。
+后台页面、账号矩阵、角色库与二创、安全模型详见 [UI.md](./UI.md)。
 
 ## Usage
 
