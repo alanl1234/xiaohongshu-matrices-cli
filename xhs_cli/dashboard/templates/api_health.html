@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 健康</title>
+<style>
+  :root { --bg:#fff; --text:#1a1a1a; --muted:#666; --card:#f9f9f9; --border:#e0e0e0; }
+  body { margin:0; padding:24px; font:14px/1.6 system-ui; background:var(--bg); color:var(--text); }
+  h1 { font-size:20px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .status-dot { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:8px; }
+  .status-dot.healthy { background:#27ae60; }
+  .status-dot.degraded { background:#f39c12; }
+  .status-dot.timeout,.status-dot.unreachable { background:#e74c3c; }
+  .status-dot.unknown { background:#bdc3c7; }
+  table { width:100%; border-collapse:collapse; }
+  td,th { padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+  th { font-weight:600; color:var(--muted); }
+  .latency { font-family:monospace; }
+  .error { color:#e74c3c; font-size:12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn { display:inline-block; padding:8px 20px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:14px; }
+  .btn:hover { opacity:0.8; }
+  .summary { display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+  .summary .tag { padding:6px 14px; border-radius:6px; font-size:13px; font-weight:600; }
+  .summary .tag.ok { background:#d4efdf; color:#1e8449; }
+  .summary .tag.warn { background:#fdebd0; color:#b9770e; }
+  .summary .tag.bad { background:#fadbd8; color:#c0392b; }
+</style>
+</head>
+<body>
+<h1>API 健康监控</h1>
+
+{% if not latest %}
+<p style="color:var(--muted);">暂无检测记录。请确保 XHS_API_HEALTH_ENABLED=1。</p>
+<p><a href="#" onclick="probeNow();return false;" class="btn">立即检测</a></p>
+{% else %}
+
+<div class="summary">
+  {% set healthy = latest|selectattr("status","equalto","healthy")|list|length %}
+  {% set total = latest|length %}
+  <span class="tag {% if healthy==total %}ok{% elif healthy>0 %}warn{% else %}bad{% endif %}">
+    {{ healthy }}/{{ total }} 正常
+  </span>
+</div>
+
+{% for check in latest %}
+<div class="card">
+  <h3 style="margin:0 0 8px 0;font-size:15px;">
+    <span class="status-dot {{ check.status }}"></span>{{ check.endpoint }}
+    <span style="color:var(--muted);font-weight:400;font-size:13px;margin-left:8px;">
+      {% if check.latency_ms %}<span class="latency">{{ check.latency_ms }}ms</span>{% endif %}
+      {% if check.status_code %}&nbsp;HTTP {{ check.status_code }}{% endif %}
+    </span>
+  </h3>
+  {% if check.error_message %}<p class="error">{{ check.error_message }}</p>{% endif %}
+  <div style="font-size:12px;color:var(--muted);">检测时间: {{ check.checked_at }}</div>
+</div>
+{% endfor %}
+
+<p><a href="#" onclick="probeNow();return false;" class="btn">重新检测</a></p>
+{% endif %}
+
+<script>
+async function probeNow() {
+  const btn = event.target;
+  btn.textContent = "检测中…";
+  btn.disabled = true;
+  try {
+    await fetch('/api/health/probe', {method:'POST'});
+  } catch(e) {}
+  location.reload();
+}
+</script>
+</body>
+</html>

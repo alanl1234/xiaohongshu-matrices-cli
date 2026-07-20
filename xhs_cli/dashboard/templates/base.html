@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}小红书运营后台{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+<aside>
+  <div class="brand"><span>RED</span> 运营台</div>
+  <nav>
+    <a class="{{ 'active' if active=='dashboard' }}" href="/">总览</a>
+    <a class="{{ 'active' if active=='accounts' }}" href="/accounts">账号管理</a>
+    <a class="{{ 'active' if active=='searches' }}" href="/searches">爆款搜索</a>
+    <a class="{{ 'active' if active=='library' }}" href="/library">素材库</a>
+    <a class="{{ 'active' if active=='publish' }}" href="/publish">审核与发布</a>
+    <a class="{{ 'active' if active=='materials' }}" href="/materials">授权素材与二创</a>
+    <a class="{{ 'active' if active=='personas' }}" href="/personas">账号人设</a>
+    <a class="{{ 'active' if active=='research' }}" href="/research">AI 研究</a>
+    <a class="{{ 'active' if active=='engagement' }}" href="/engagement">互动工作台</a>
+    <a class="{{ 'active' if active=='rules' }}" href="/rules">互动规则</a>
+  </nav>
+  <small>仅在本机运行<br>{{ data_dir }}</small>
+</aside>
+<main>
+  {% if message %}<div class="notice">{{ message }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

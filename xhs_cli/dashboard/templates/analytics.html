@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>效果度量</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#fff; --text:#1a1a1a; --muted:#666; --card:#f9f9f9; --border:#e0e0e0; --accent:#e74c3c; --green:#27ae60; }
+  body { margin:0; padding:24px; font:14px/1.6 system-ui; background:var(--bg); color:var(--text); }
+  h1 { font-size:20px; margin-bottom:16px; }
+  .filters { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; align-items:center; }
+  .filters select,.filters input { padding:6px 10px; border:1px solid var(--border); border-radius:4px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-bottom:20px; }
+  .stat { text-align:center; padding:12px; }
+  .stat .num { font-size:28px; font-weight:700; }
+  .stat .label { font-size:12px; color:var(--muted); margin-top:4px; }
+  table { width:100%; border-collapse:collapse; }
+  td,th { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+  th { font-weight:600; color:var(--muted); }
+  .rank-badge { display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; text-align:center; font-size:12px; font-weight:700; background:var(--accent); color:#fff; }
+  .rank-badge.silver { background:#bdc3c7; }
+  .rank-badge.bronze { background:#e67e22; }
+  canvas { max-height:300px; }
+  .bar { display:inline-block; height:6px; background:var(--accent); border-radius:3px; min-width:4px; }
+</style>
+</head>
+<body>
+<h1>效果度量</h1>
+<form class="filters" method="get" action="/analytics">
+  <select name="account_id">
+    <option value="0">全部账号</option>
+    {% for acct in accounts %}
+    <option value="{{ acct.id }}" {% if account_id==acct.id %}selected{% endif %}>{{ acct.alias }}</option>
+    {% endfor %}
+  </select>
+  <select name="days">
+    <option value="7" {% if days==7 %}selected{% endif %}>最近 7 天</option>
+    <option value="30" {% if days==30 %}selected{% endif %}>最近 30 天</option>
+    <option value="90" {% if days==90 %}selected{% endif %}>最近 90 天</option>
+  </select>
+  <button type="submit" style="padding:6px 16px;">查看</button>
+</form>
+
+{% if data.snapshot_count == 0 %}
+<p style="color:var(--muted);">暂无数据。请确保 XHS_ANALYTICS_ENABLED=1 且至少发布过一篇笔记。</p>
+{% else %}
+
+<div class="grid">
+  <div class="stat"><div class="num">{{ data.snapshot_count }}</div><div class="label">快照次数</div></div>
+  <div class="stat"><div class="num">{{ data.notes|length }}</div><div class="label">已发布笔记</div></div>
+  {% if ranking %}
+  <div class="stat"><div class="num">{{ ranking[0].alias }}</div><div class="label">最佳账号</div></div>
+  {% endif %}
+</div>
+
+<div class="card"><canvas id="trendChart"></canvas></div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin-top:0;">笔记排行（按互动率）</h2>
+  <table>
+    <tr><th>#</th><th>笔记</th><th>点赞</th><th>评论</th><th>收藏</th><th>互动率</th></tr>
+    {% for note in data.notes[:10] %}
+    <tr>
+      <td><span class="rank-badge {% if loop.index==2 %}silver{% elif loop.index==3 %}bronze{% endif %}">{{ loop.index }}</span></td>
+      <td>{{ note.title[:24] }}</td>
+      <td>{{ note.likes }}</td>
+      <td>{{ note.comments }}</td>
+      <td>{{ note.collects }}</td>
+      <td>{{ "%.1f"|format(note.engagement_rate) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% if ranking %}
+<div class="card">
+  <h2 style="font-size:16px;margin-top:0;">账号对比</h2>
+  <table>
+    <tr><th>账号</th><th>快照数</th><th>平均互动率</th></tr>
+    {% for r in ranking %}
+    <tr><td>{{ r.alias }}</td><td>{{ r.snapshots }}</td><td>{{ "%.1f"|format(r.avg_er or 0) }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% endif %}
+
+<script>
+{% if data.trend %}
+new Chart(document.getElementById('trendChart'), {
+  type:'line',
+  data:{
+    labels: [{% for t in data.trend %}'{{ t.date }}'{% if not loop.last %},{% endif %}{% endfor %}],
+    datasets:[{
+      label:'日均点赞',
+      data:[{% for t in data.trend %}{{ t.avg_likes }}{% if not loop.last %},{% endif %}{% endfor %}],
+      borderColor:'#e74c3c',
+      backgroundColor:'rgba(231,76,60,0.1)',
+      fill:true,
+      tension:0.3
+    }]
+  },
+  options:{responsive:true,maintainAspectRatio:true}
+});
+{% endif %}
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}授权素材与二创{% endblock %}
+{% block content %}
+<h1>授权素材与线下二创</h1>
+<p class="muted">只有“自有”或“已授权”来源可以进入二创任务。原始采集素材不能在此直接转换为发布任务。</p>
+<section class="panel"><h2>1. 登记来源与授权</h2><form method="post" action="/materials/sources" class="grid-form">
+  <label>名称<input name="name" required></label><label>来源类型<select name="source_type"><option value="owned">自有素材</option><option value="licensed">外部授权</option></select></label>
+  <label>授权状态<select name="authorization_status"><option value="owned">自有</option><option value="authorized">已授权</option><option value="unverified">未核实</option><option value="blocked">禁止使用</option></select></label>
+  <label>来源链接<input name="source_url"></label><label>本地路径<input name="local_path"></label><label>用途限制<input name="usage_restrictions"></label><button>登记</button>
+</form><table><thead><tr><th>ID</th><th>名称</th><th>授权</th><th>限制</th></tr></thead><tbody>{% for s in sources %}<tr><td>{{ s.id }}</td><td>{{ s.name }}</td><td>{{ s.authorization_status }}</td><td>{{ s.usage_restrictions or '-' }}</td></tr>{% endfor %}</tbody></table></section>
+<section class="panel"><h2>2. 创建候选素材</h2><form method="post" action="/materials/candidates" class="grid-form"><label>授权来源<select name="source_id">{% for s in sources %}<option value="{{ s.id }}">#{{ s.id }} {{ s.name }} / {{ s.authorization_status }}</option>{% endfor %}</select></label><label>关联采集笔记<select name="note_id"><option value="">无</option>{% for n in notes %}<option value="{{ n.id }}">{{ n.note_id }} {{ n.title }}</option>{% endfor %}</select></label><button>创建候选</button></form>
+<table><thead><tr><th>ID</th><th>来源</th><th>笔记</th><th>授权</th></tr></thead><tbody>{% for c in candidates %}<tr><td>{{ c.id }}</td><td>{{ c.source_name }}</td><td>{{ c.platform_note_id or '-' }}</td><td>{{ c.authorization_status }}</td></tr>{% endfor %}</tbody></table></section>
+<section class="panel"><h2>3. 创建线下二创任务</h2><form method="post" action="/materials/derivatives" class="grid-form"><label>候选 ID<input type="number" name="candidate_id" required></label><label>任务标题<input name="title" required></label><label>目标人设<select name="persona_id"><option value="">未指定</option>{% for p in personas %}<option value="{{ p.id }}">{{ p.name }} v{{ p.version }}</option>{% endfor %}</select></label><button>创建任务</button></form></section>
+<section class="panel"><h2>4. 导入线下成品</h2><p>成品目录必须含 <code>post.md</code> 和本地图片；Front Matter 必须声明目标账号。导入后仍为待审核状态。</p><table><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>成品目录与权利确认</th></tr></thead><tbody>{% for d in derivatives %}<tr><td>{{ d.id }}</td><td>{{ d.title }}</td><td>{{ d.status }}</td><td><form method="post" action="/materials/derivatives/{{ d.id }}/import"><input name="directory" placeholder="完整目录路径" required><label><input type="checkbox" name="rights_declared" required>我确认成品图片和文案拥有使用权</label><button>导入待审核</button></form></td></tr>{% endfor %}</tbody></table></section>
+{% endblock %}
