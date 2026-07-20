@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}互动工作台{% endblock %}
+{% block content %}
+<h1>评论与私信工作台</h1>
+<p class="muted">所有任务逐条审核。检测到手机号、微信号、地址、拒绝或投诉后立即停止，并提示前往原账号人工查看。</p>
+<section class="panel"><h2>登记会话索引</h2><form method="post" action="/engagement/threads" class="grid-form">
+  <label>账号<select name="account_id">{% for a in accounts %}<option value="{{ a.id }}">{{ a.alias }}</option>{% endfor %}</select></label>
+  <label>消息入口<select name="channel"><option value="normal_dm">普通账号私信</option><option value="pro_dm">专业号客服</option></select></label>
+  <label>对方用户 ID<input name="external_user_id" required></label><label>显示名称<input name="display_name"></label>
+  <label class="wide">会话 URL<input name="platform_thread_ref" placeholder="可选；建议在浏览器中复制目标会话链接"></label>
+  <label>暖线索依据<select name="lead_reason"><option value="">无</option><option value="inbound_dm">对方主动私信</option><option value="owned_note_intent">自有笔记表达需求</option><option value="brand_mention">主动提及品牌</option><option value="opt_in_keyword">约定咨询关键词</option></select></label>
+  <button type="submit">保存会话索引</button>
+</form></section>
+<section class="panel"><h2>创建待审核动作</h2><form method="post" class="grid-form">
+  <label>账号<select name="account_id">{% for a in accounts %}<option value="{{ a.id }}">{{ a.alias }}</option>{% endfor %}</select></label>
+  <label>类型<select name="kind"><option value="comment_reply">回复评论</option><option value="comment">外部精选评论</option><option value="dm_reply">回复私信</option><option value="dm_outbound">暖线索主动私信</option></select></label>
+  <label>会话<select name="thread_id"><option value="">非私信</option>{% for t in threads %}<option value="{{ t.id }}">#{{ t.id }} {{ t.display_name or t.external_user_id }} / {{ t.status }}</option>{% endfor %}</select></label>
+  <label>笔记 ID<input name="target_note_id"></label><label>评论 ID<input name="target_comment_id"></label><label>用户 ID<input name="target_user_id"></label>
+  <label class="wide">逐条内容<textarea name="content" required rows="4"></textarea></label><button type="submit">进入待审核</button>
+</form></section>
+<section class="panel"><h2>会话状态</h2><table><thead><tr><th>ID</th><th>账号</th><th>渠道</th><th>对象</th><th>依据</th><th>状态</th><th>操作</th></tr></thead><tbody>
+{% for t in threads %}<tr><td>{{ t.id }}</td><td>{{ t.account_id }}</td><td>{{ t.channel }}</td><td>{{ t.display_name or t.external_user_id }}</td><td>{{ t.lead_reason or '-' }}</td><td>{{ t.status }}</td><td><form method="post" action="/engagement/threads/{{ t.id }}/sync"><button>可见浏览器同步</button></form></td></tr>{% endfor %}</tbody></table></section>
+<section class="panel"><h2>审核与执行</h2><table><thead><tr><th>ID</th><th>账号</th><th>类型</th><th>目标</th><th>内容</th><th>状态</th><th>操作</th></tr></thead><tbody>
+{% for t in tasks %}<tr><td>{{ t.id }}</td><td>{{ t.account_alias }}</td><td>{{ t.kind }}</td><td>{{ t.display_name or t.target_user_id or t.target_note_id }}</td><td class="wrap">{{ t.content }}</td><td>{{ t.status }}{% if t.error %}<br><small>{{ t.error }}</small>{% endif %}</td><td>
+{% if t.status == 'pending_review' %}<form method="post" action="/engagement/{{ t.id }}/approve"><button>批准</button></form>{% endif %}
+{% if t.status == 'approved' %}<form method="post" action="/engagement/{{ t.id }}/run"><button>执行</button></form>{% endif %}
+{% if t.status in ['pending_review','approved','queued'] %}<form method="post" action="/engagement/{{ t.id }}/cancel"><button class="secondary">取消</button></form>{% endif %}
+</td></tr>{% endfor %}</tbody></table></section>
+{% endblock %}

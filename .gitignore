@@ -1,0 +1,102 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.playwright-mcp/
+xhs_login_page.png
+
+# ── Open-source hygiene ──
+.pytest-p0-desktop/
+.pytest-tmp/
+orchestrator_goals.json
+.coverage
+*.log
+
+# ── Runtime artifacts (never commit) ──
+data/
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
+Thumbs.db
+
+# ── AI coding assistants / agent artifacts (never commit, hide tooling) ──
+# 覆盖主流 AI 编辑器与智能体产物目录，避免单一工具被单独标记。
+.workbuddy/
+.codebuddy/
+.cursor/
+.cursorrules
+.cline/
+.clinerules
+.roo/
+.rooignore
+.windsurf/
+.windsurfrules
+.codeium/
+.aider/
+.aider.conf.yml
+.aider.input.history
+.aider.chat.history.md
+.continue/
+.sourcegraph/
+.augment/
+.claude/
+CLAUDE.md
+.agents/
+AGENTS.md
+.gemini/
+GEMINI.md
+.trae/
+.qwen/
+.codex/
+.devin/
+.v0/
+.replit/
+.tabnine/
+.sweep/
+.idea/
+
+# ── 国内 AI 编码助手 / 大模型 agent 产物目录 ──
+.qoder/
+QODER.md
+.lingma/
+.comate/
+.codegeex/
+.codearts/
+.marscode/
+.hunyuan/
+.yuanbao/
+.spark/
+.kimi/
+.glm/
+.minimax/
+.tongyi/
+cookies.backup.json
+
+# ── Generic AI-generated working artifacts (never commit) ──
+ai_output/
+ai_temp/
+ai_generated/
+.ai_cache/
+ai_docs/
+
+# ── AI research / local analysis products (local data, never commit) ──
+# 账号编号、源账号、风格绑定、图片指令词等均为本地数据，禁止入库。
+AI_RESEARCH_PLAN.md
+PROJECT_REVIEW.md
+wordcard_*.md
+erchuang_*.md
+template_analysis_*.md
+note_*.json
+elegant_publish_image.jpg
+
+# ── Consolidated local work folder (all non-code work products live here, never commit) ──
+workbuddy/
+
+# ── Build / packaging artifacts (regenerable) ──
+build/
+.buildenv/

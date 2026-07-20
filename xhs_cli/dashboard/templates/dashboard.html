@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}总览 · 小红书运营后台{% endblock %}
+{% block content %}
+<header><div><p class="eyebrow">LOCAL OPERATIONS</p><h1>运营总览</h1><p>爆款采集、素材归档与审核发布均在本机完成。</p></div></header>
+<section class="stats">
+  <article><b>{{ stats.accounts }}</b><span>账号档案</span></article>
+  <article><b>{{ stats.ready_accounts }}</b><span>登录可用</span></article>
+  <article><b>{{ stats.notes }}</b><span>爆款素材</span></article>
+  <article><b>{{ stats.pending }}</b><span>待审核</span></article>
+  <article><b>{{ stats.queued }}</b><span>队列执行中</span></article>
+</section>
+<div class="columns">
+<section class="panel"><div class="panel-head"><h2>最近采集任务</h2><a href="/searches">查看全部</a></div>
+{% for job in jobs %}<div class="row"><div><b>{{ job.name }}</b><small>{{ job.progress_current }}/{{ job.progress_total }} · 命中 {{ job.result_count }}</small></div><span class="status {{ job.status }}">{{ job.status }}</span></div>{% else %}<p class="empty">还没有采集任务</p>{% endfor %}
+</section>
+<section class="panel"><div class="panel-head"><h2>最近发布任务</h2><a href="/publish">进入审核</a></div>
+{% for task in tasks %}<div class="row"><div><b>{{ task.title }}</b><small>{{ task.account_alias }}</small></div><span class="status {{ task.status }}">{{ task.status }}</span></div>{% else %}<p class="empty">还没有发布任务</p>{% endfor %}
+</section></div>
+{% endblock %}

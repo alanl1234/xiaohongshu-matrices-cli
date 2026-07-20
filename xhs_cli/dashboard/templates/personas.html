@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}账号人设{% endblock %}
+{% block content %}
+<h1>账号人设与知识边界</h1>
+<p class="muted">人设只能描述真实受控账号的表达方式，不得虚构经历、资质或客户案例。保存同名人设会创建新版本。</p>
+<section class="panel">
+  <form method="post" class="grid-form">
+    <label>账号<select name="account_id" required>{% for a in accounts %}<option value="{{ a.id }}">{{ a.alias }}</option>{% endfor %}</select></label>
+    <label>人设名称<input name="name" required></label>
+    <label>真实品牌/身份<input name="brand_identity" required></label>
+    <label>语气<input name="tone" placeholder="专业、简洁、友善"></label>
+    <label>专业范围<input name="expertise" placeholder="用逗号分隔"></label>
+    <label>允许的站内引导<input name="allowed_cta" placeholder="欢迎继续私信咨询"></label>
+    <label>禁止声明<input name="prohibited_claims" placeholder="保证效果、虚假案例"></label>
+    <button type="submit">保存新版本</button>
+  </form>
+</section>
+<section class="panel"><h2>已保存版本</h2>
+<table><thead><tr><th>ID</th><th>账号</th><th>名称</th><th>版本</th><th>身份</th><th>语气</th></tr></thead>
+<tbody>{% for p in personas %}<tr><td>{{ p.id }}</td><td>{{ p.account_alias }}</td><td>{{ p.name }}</td><td>v{{ p.version }}</td><td>{{ p.brand_identity }}</td><td>{{ p.tone }}</td></tr>{% endfor %}</tbody></table>
+</section>
+{% endblock %}
