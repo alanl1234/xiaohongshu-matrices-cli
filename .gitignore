@@ -94,6 +94,9 @@ template_analysis_*.md
 note_*.json
 elegant_publish_image.jpg
 
+# ── Consolidated local work folder (all non-code work products live here, never commit) ──
+workbuddy/
+
 # ── Build / packaging artifacts (regenerable) ──
 build/
 .buildenv/
