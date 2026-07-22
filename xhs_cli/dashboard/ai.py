@@ -79,6 +79,17 @@ class DraftOutput(BaseModel):
     cta_stage: Literal["none", "in_platform", "human_handoff"] = "none"
 
 
+class AccountAnalysisReport(BaseModel):
+    """Strategic synthesis of one account's layered note analysis (for 二创 research)."""
+
+    summary: str = Field(description="3-5 句中文总结：账号定位、最成功的形式与主题、发布节奏、可复用的爆款规律")
+    content_pillars: list[str] = Field(description="最突出的 2-4 个内容支柱/主题")
+    best_format: str = Field(description="video / image / 均衡 中哪种形式互动更好")
+    posting_rhythm: str = Field(description="发布频率与时段特征")
+    reusable_patterns: list[str] = Field(description="可复用到二创的爆款规律，2-5 条")
+    caution: list[str] = Field(description="使用这些素材时需注意的合规/授权风险，1-3 条")
+
+
 T = TypeVar("T", bound=BaseModel)
 
 

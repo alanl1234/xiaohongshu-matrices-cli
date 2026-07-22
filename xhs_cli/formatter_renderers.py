@@ -311,3 +311,107 @@ def render_notifications(data: dict[str, Any], notif_type: str) -> None:
         table.add_row(str(i), nickname, display, time_str)
 
     console.print(table)
+
+
+def render_user_analysis(report: dict[str, Any]) -> None:
+    """Render a layered (分层式) account analysis report as Rich panels/tables."""
+    if report.get("empty"):
+        print_info("没有可分析的帖子数据。")
+        return
+
+    ov = report.get("layer0_overview", {})
+    nickname = ov.get("nickname") or "未知账号"
+    deep = ov.get("deep")
+
+    # ── L0 账号总览 ───────────────────────────────────────────────
+    info = Table(show_header=False, box=None, padding=(0, 2))
+    info.add_column("K", style="dim")
+    info.add_column("V")
+    info.add_row("昵称", f"[bold]{nickname}[/bold]")
+    if ov.get("followers"):
+        info.add_row("粉丝", format_count(ov["followers"]))
+    info.add_row("总帖子", str(ov.get("total_notes", 0)))
+    info.add_row("累计点赞", format_count(ov.get("total_likes", 0)))
+    info.add_row("平均 / 中位 / 最高赞", f"{format_count(ov.get('avg_likes', 0))} / "
+                                        f"{format_count(ov.get('median_likes', 0))} / "
+                                        f"{format_count(ov.get('max_likes', 0))}")
+    mix = ov.get("media_mix", {})
+    info.add_row("形式构成", f"视频 {mix.get('video', 0)} · 图文 {mix.get('image', 0)}")
+    if ov.get("date_first") and ov.get("date_last"):
+        info.add_row("时间跨度", f"{ov['date_first'][:10]} ~ {ov['date_last'][:10]}（{ov.get('span_days', 0)} 天）")
+    if ov.get("topics_union_count"):
+        info.add_row("话题标签数", str(ov["topics_union_count"]))
+    suffix = "（含收藏/评论/正文）" if deep else "（列表口径，仅含点赞）"
+    console.print(Panel(info, title="📊 L0 账号总览" + suffix, border_style="cyan"))
+
+    # ── L1 互动分层 ───────────────────────────────────────────────
+    tiers = report.get("layer1_tiers", [])
+    if tiers:
+        t = Table(title="🔥 L1 互动分层（按点赞）", show_lines=True)
+        t.add_column("层级", width=8)
+        t.add_column("阈值", justify="right", width=10)
+        t.add_column("篇数", justify="right", width=6)
+        t.add_column("占比", justify="right", width=6)
+        t.add_column("代表帖子", width=46)
+        for tier in tiers:
+            ex = "；".join(e["title"] for e in tier.get("examples", [])) or "—"
+            t.add_row(
+                tier["tier"],
+                f">={tier['threshold']:,}",
+                str(tier["count"]),
+                f"{tier['share_pct']}%",
+                ex,
+            )
+        console.print(t)
+
+    # ── L2 主题聚类 ───────────────────────────────────────────────
+    themes = report.get("layer2_themes", [])
+    if themes:
+        th = Table(title="🧩 L2 主题聚类", show_lines=True)
+        th.add_column("主题/关键词", width=18)
+        th.add_column("篇数", justify="right", width=6)
+        th.add_column("均赞", justify="right", width=9)
+        th.add_column("示例", width=40)
+        for theme in themes:
+            ex = "；".join(theme.get("examples", [])) or "—"
+            th.add_row(theme["keyword"], str(theme["count"]), format_count(theme["avg_liked"]), ex)
+        console.print(th)
+
+    # ── L3 形式与节奏 ─────────────────────────────────────────────
+    fmt = report.get("layer3_format", {})
+    cad = report.get("layer4_cadence", {})
+    f = Table(show_header=False, box=None, padding=(0, 2))
+    f.add_column("K", style="dim")
+    f.add_column("V")
+    if "video" in fmt:
+        f.add_row("视频均赞", format_count(fmt["video"].get("avg_liked", 0)))
+    if "image" in fmt:
+        f.add_row("图文均赞", format_count(fmt["image"].get("avg_liked", 0)))
+    winner = fmt.get("winner")
+    if winner and winner != "tie":
+        f.add_row("更优形式", "视频 📹" if winner == "video" else "图文 📷")
+    if cad.get("available"):
+        f.add_row("最佳星期", cad.get("best_weekday", "—"))
+        f.add_row("最佳时段", cad.get("best_window", "—"))
+    else:
+        f.add_row("节奏", "无发布时间数据（加 --deep 可补全）")
+    console.print(Panel(f, title="⚙️ L3 形式与节奏", border_style="magenta"))
+
+    # ── L4 头部帖子 ───────────────────────────────────────────────
+    top = report.get("layer4_top", [])
+    if top:
+        tp = Table(title="🏆 L4 头部帖子", show_lines=True)
+        tp.add_column("#", style="dim", width=3)
+        tp.add_column("标题", width=32)
+        tp.add_column("❤️", justify="right", width=9)
+        tp.add_column("类型", width=4)
+        for post in top:
+            icon = "📹" if post["media_type"] == "video" else "📷"
+            tp.add_row(str(post["rank"]), post["title"], format_count(post["liked"]), icon)
+        console.print(tp)
+
+    # ── L5 战略总结 ───────────────────────────────────────────────
+    synthesis = report.get("layer5_synthesis", "")
+    src = report.get("synthesis_source", "rule")
+    tag = "AI" if src == "ai" else ("规则(回退)" if src == "rule_error" else "规则")
+    console.print(Panel(synthesis or "（无总结）", title=f"🧠 L5 战略总结 · {tag}", border_style="green"))

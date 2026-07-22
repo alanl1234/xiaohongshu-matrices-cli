@@ -13,6 +13,7 @@ from .formatter_renderers import (  # noqa: F401
     render_notifications,
     render_search_results,
     render_topics,
+    render_user_analysis,
     render_user_info,
     render_user_posts,
     render_users,

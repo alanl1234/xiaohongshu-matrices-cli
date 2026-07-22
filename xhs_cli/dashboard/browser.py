@@ -360,6 +360,19 @@ class AccountBrowserService:
                 self._cleanup_stale_lock(profile)
 
     def cookies(self, account_id: int) -> dict[str, str]:
+        """Return cookies extracted from a *live* Camoufox browser session.
+
+        ⚠️ DO NOT feed these cookies to ``XhsClient`` API publishing
+        (``get_upload_permit`` / ``upload_file`` / ``create_image_note``).
+        Xiaohongshu rejects the Camoufox-session cookie with a server-side
+        error on the upload-permit call (observed: every call fails). For
+        API-based publishing, use the CLI ``xhs post --account <id>`` path
+        instead — it bridges the account's cookies **offline** via
+        ``account_bridge.get_dashboard_account_cookies()`` (decrypts the
+        profile ``cookies.sqlite``) and is verified working.
+
+        This method is reserved for in-browser flows (``bind`` / ``verify``).
+        """
         cookies = self.with_context(account_id, self._cookie_dict)
         if not cookies.get("a1"):
             self.db.update("accounts", account_id, login_status="needs_login", last_error="浏览器会话已失效")

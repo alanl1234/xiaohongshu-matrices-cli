@@ -35,7 +35,7 @@ import sys
 import click
 
 from . import __version__
-from .commands import auth, creator, interactions, notifications, reading, social
+from .commands import analyze, auth, creator, interactions, notifications, reading, social
 
 
 def _fix_windows_encoding() -> None:
@@ -148,6 +148,10 @@ cli.add_command(creator.delete)
 
 cli.add_command(notifications.notifications)
 cli.add_command(notifications.unread)
+
+# ─── Analysis commands ──────────────────────────────────────────────────────
+
+cli.add_command(analyze.analyze_user)
 
 if __name__ == "__main__":
     cli()
