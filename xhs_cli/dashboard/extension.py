@@ -124,6 +124,46 @@ class DashboardExtension:
             )
             return redirect("/personas", "人设新版本已保存")
 
+        @router.get("/roles", response_class=HTMLResponse)
+        def roles_page(request: Request):
+            return render(
+                request,
+                "roles.html",
+                active="roles",
+                roles=self.db.fetchall(
+                    """SELECT r.*, COUNT(ar.account_id) account_count
+                    FROM roles r LEFT JOIN account_roles ar ON ar.role_id=r.id
+                    GROUP BY r.id ORDER BY r.id"""
+                ),
+                accounts=self.db.fetchall("SELECT * FROM accounts WHERE enabled=1 ORDER BY id"),
+                message=request.query_params.get("message"),
+            )
+
+        @router.post("/roles")
+        def create_role(
+            name: str = Form(...),
+            slug: str = Form(...),
+            description: str = Form(""),
+            style_ref: str = Form(""),
+        ):
+            self.store.create_role(name, slug, description=description, style_ref=style_ref)
+            return redirect("/roles", "角色已创建")
+
+        @router.post("/roles/{role_id}/delete")
+        def delete_role(role_id: int):
+            self.db.execute("DELETE FROM roles WHERE id=?", (role_id,))
+            return redirect("/roles", "角色已删除")
+
+        @router.post("/accounts/{account_id}/bind-role")
+        def bind_account_role(account_id: int, role_id: int = Form(...), is_primary: bool = Form(False)):
+            self.store.bind_account_role(account_id, role_id, is_primary)
+            return redirect("/accounts", "角色已绑定")
+
+        @router.post("/accounts/{account_id}/unbind-role")
+        def unbind_account_role(account_id: int, role_id: int = Form(...)):
+            self.store.unbind_account_role(account_id, role_id)
+            return redirect("/accounts", "角色已解绑")
+
         @router.get("/research", response_class=HTMLResponse)
         def research_page(request: Request):
             return render(

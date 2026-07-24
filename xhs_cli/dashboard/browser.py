@@ -253,7 +253,7 @@ class AccountBrowserService:
             if moved:
                 shutil.rmtree(trash)
 
-    def create_account(self, alias: str) -> int:
+    def create_account(self, alias: str, group_name: str = "") -> int:
         if len(self.db.fetchall("SELECT id FROM accounts")) >= self.config.max_accounts:
             raise ValueError(f"最多只能创建 {self.config.max_accounts} 个账号")
         profile = (self.config.profiles_dir / safe_name(alias)).resolve()
@@ -261,7 +261,7 @@ class AccountBrowserService:
             raise ValueError("账号档案路径无效")
         profile.mkdir(parents=True, exist_ok=True)
         acl_status = self._secure_profile(profile)
-        account_id = self.db.create_account(alias.strip(), str(profile))
+        account_id = self.db.create_account(alias.strip(), str(profile), group_name)
         self.db.update("accounts", account_id, profile_acl_status=acl_status)
         return account_id
 

@@ -126,6 +126,7 @@ class P0Store:
             self._add_column(con, "publish_attempts", "error_category TEXT")
             self._add_column(con, "publish_attempts", "before_note_ids_json TEXT NOT NULL DEFAULT '[]'")
             self._add_column(con, "accounts", "profile_acl_status TEXT NOT NULL DEFAULT 'unknown'")
+            self._add_column(con, "accounts", "group_name TEXT NOT NULL DEFAULT ''")
             con.execute(
                 "INSERT INTO schema_meta(key,value) VALUES('schema_version',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

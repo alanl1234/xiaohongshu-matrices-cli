@@ -141,6 +141,7 @@ cli.add_command(social.likes)
 # ─── Creator commands ───────────────────────────────────────────────────────
 
 cli.add_command(creator.post)
+cli.add_command(creator.post_text)
 cli.add_command(creator.my_notes)
 cli.add_command(creator.delete)
 

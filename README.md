@@ -20,6 +20,7 @@ A local-first, multi-account matrix CLI for Xiaohongshu (小红书) — search, 
 - 👥 **Social** — follow/unfollow, favorites
 - 👍 **Interactions** — like, favorite, comment, reply, delete
 - ✍️ **Creator** — post image notes, my-notes list, delete
+- 📝 **Long-form text notes** — `post-text` renders Markdown into typeset cover + content cards (warm/default/playful themes) and uploads them as a multi-image carousel
 - 🔔 **Notifications** — unread count, mentions, likes, new followers
 - 🛡️ **Anti-detection** — consistent macOS Chrome fingerprint, `sec-ch-ua` alignment, session-stable browser identity, Gaussian jitter, captcha cooldown, exponential backoff
 - 📊 **Structured output** — commands support `--yaml` and `--json`; non-TTY stdout defaults to YAML
@@ -65,7 +66,7 @@ uv sync --extra dev
 ### 界面
 
 本工具提供 **命令行 `xhs`** 与 **本地后台 `xhs-dashboard`** 两套界面。
-后台页面、账号矩阵、角色库与二创、安全模型详见 [UI.md](./UI.md)。
+启动后台后访问 http://127.0.0.1:8765 即可使用账号管理、角色库、搜索、发布等功能。
 
 ## Usage
 
@@ -148,6 +149,15 @@ xhs post --title "标题" --body "正文" --images img.jpg  # Post note
 xhs post --title "t" --body "b #考研" --images img.jpg --topic-id "考研=65a1b2c3..."
 xhs delete <note_id>                   # Delete a PUBLISHED note (不是草稿)
 xhs delete <note_id> -y               # Skip confirmation
+
+# ─── Long-form text notes (post-text) ────────────
+# Web API 不能发布"纯文字"笔记（type=normal 必须带 image_info），
+# 本命令把长文渲染成一组排版好的文字封面卡（warm/default/playful 三主题），
+# 上传后作为多图图文笔记发布 — 读者看到的仍是一组长文卡片。
+xhs post-text --title "标题" --body-file article.md --private        # 默认私密发布
+xhs post-text --title "标题" --body "## 段标题\n\n段落..." --theme warm
+xhs post-text --title "..." --body "..." --dry-run --output-dir ./preview  # 只渲染不发布
+# 在 body 中用单独一行 --- 强制分页（其余自动按高度分页）
 
 # ─── Notifications ────────────────────────────────
 xhs unread                             # Unread counts (likes, mentions, follows)
@@ -428,6 +438,7 @@ The built-in Gaussian jitter delay (~1-1.5s between requests) is intentional to 
 - 👥 **社交** — 关注/取关、收藏夹
 - 👍 **互动** — 点赞、收藏、评论、回复、删除
 - ✍️ **创作者** — 发布图文笔记、我的笔记列表、删除
+- 📝 **长文图文笔记** — `post-text` 把 Markdown 渲染成一组排版好的文字封面卡（warm/default/playful 三主题），作为多图图文笔记发布
 - 🔔 **通知** — 未读数、@、点赞、新关注
 - 🛡️ **反风控** — macOS Chrome 指纹一致性、session 级浏览器身份持久化、高斯抖动延迟、验证码自动冷却、指数退避重试
 - 📊 **结构化输出** — `--yaml` / `--json`，非 TTY 默认输出 YAML

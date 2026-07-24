@@ -1,6 +1,7 @@
-"""Creator commands: post, my-notes, delete."""
+"""Creator commands: post, post-text, my-notes, delete."""
 
 import re
+from pathlib import Path
 
 import click
 
@@ -171,3 +172,239 @@ def delete(ctx, id_or_url: str, as_json: bool, as_yaml: bool, yes: bool):
             print_success(f"Deleted note {note_id}")
     except Exception as exc:
         exit_for_error(exc, as_json=as_json, as_yaml=as_yaml)
+
+
+def _validate_text_note_lengths(title: str, body: str) -> None:
+    """Enforce Xiaohongshu's per-field length ceilings for text notes."""
+    if len(title) > 20:
+        raise click.UsageError(
+            f"标题长度 {len(title)} 超过小红书限制 20 字；请精简标题。"
+        )
+    if len(body) > 1000:
+        raise click.UsageError(
+            f"正文长度 {len(body)} 超过小红书限制 1000 字；正文只用于生成图片，"
+            "若只为发布真实内容，请用 `post --images ...` 重新组织。"
+        )
+
+
+@click.command("post-text")
+@click.option("--title", required=True, help="Note title (≤20 chars)")
+@click.option(
+    "--body",
+    required=True,
+    help=(
+        "Note body in lightweight Markdown. Use ``---`` (alone on a line) "
+        "for manual page breaks; otherwise paragraphs are auto-grouped."
+    ),
+)
+@click.option(
+    "--body-file",
+    type=click.Path(exists=True, dir_okay=False, readable=True),
+    default=None,
+    help="Read body from a Markdown file (overrides --body).",
+)
+@click.option(
+    "--subtitle",
+    default="",
+    help="Cover-page subtitle (defaults to first paragraph of body).",
+)
+@click.option(
+    "--theme",
+    default="warm",
+    show_default=True,
+    type=click.Choice(["default", "warm", "playful"]),
+    help="Layout theme for cover + content cards.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Directory for the rendered PNG files (otherwise a temp dir is used).",
+)
+@click.option("--topic", "topics_flag", multiple=True, help="Topic(s)/hashtag(s) to search and attach")
+@click.option(
+    "--topic-id",
+    "topic_ids_flag",
+    multiple=True,
+    help="强制话题 id（同 post 命令），KEYWORD=ID。",
+)
+@click.option(
+    "--private/--public",
+    "is_private",
+    default=True,
+    show_default=True,
+    help="Publish as private note (DEFAULT). Pure-text publishing "
+    "should always be tested privately first.",
+)
+@click.option(
+    "--keep-artifacts/--no-keep-artifacts",
+    default=False,
+    show_default=True,
+    help="Retain rendered PNG files for inspection.",
+)
+@click.option(
+    "--chars-per-page",
+    default=600,
+    show_default=True,
+    type=int,
+    help="Approximate character budget per card when auto-splitting.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help=(
+        "Render images locally but do NOT upload or publish. Useful for "
+        "previewing the look before posting."
+    ),
+)
+@structured_output_options
+@click.pass_context
+def post_text(
+    ctx,
+    title: str,
+    body: str,
+    body_file: str | None,
+    subtitle: str,
+    theme: str,
+    output_dir: str | None,
+    topics_flag: tuple[str, ...],
+    topic_ids_flag: tuple[str, ...],
+    is_private: bool,
+    keep_artifacts: bool,
+    chars_per_page: int,
+    dry_run: bool,
+    as_json: bool,
+    as_yaml: bool,
+):
+    """Publish a long-form text note as a typeset multi-image carousel.
+
+    Renders ``title + body`` into a cover page + N content cards via
+    Pillow (pixel-level layout), uploads each card through the existing
+    image upload pipeline, and submits them as a normal image note through
+    ``create_text_note``.
+
+    **Web API cannot publish a truly image-less note.** The result is a
+    multi-image ``image_info`` note on the server side, but visually each
+    image is a typeset page of text — readers perceive a long-form reading
+    carousel as one note.
+
+    \b
+    Examples:
+        xhs post-text --title "..." --body "..." --private
+        xhs post-text --title "..." --body-file article.md --theme playful
+        xhs post-text --title "..." --body "..." --dry-run --output-dir ./out
+    """
+    if body_file:
+        body = Path(body_file).read_text(encoding="utf-8")
+
+    _validate_text_note_lengths(title, body)
+
+    if is_private is False and not dry_run:
+        # Public publishing is risky for unverified content — confirm intent.
+        click.confirm(
+            "即将公开发布（非私密）。确认要公开发布吗？"
+            "默认建议先私密测试，确认效果后再公开。",
+            abort=True,
+        )
+
+    if dry_run:
+        print_info("Dry-run: rendering only, no upload or publish.")
+
+    resolved_topics: list[dict[str, str]] = []
+    unresolved: list[str] = []
+    explicit_ids: dict[str, str] = {}
+
+    if not dry_run:
+        # Combine explicit --topic flags with hashtags found in the body text.
+        body_hashtags = extract_hashtags(body)
+        all_topics = list(topics_flag) + body_hashtags
+        unique_topics = list(dict.fromkeys(all_topics))
+        if len(unique_topics) > 10:
+            print_info(f"Found {len(unique_topics)} topics, using first 10")
+            unique_topics = unique_topics[:10]
+
+        for raw in topic_ids_flag:
+            if "=" in raw:
+                key, val = raw.split("=", 1)
+                explicit_ids[key.strip()] = val.strip()
+
+    out_dir_path: Path | None = Path(output_dir) if output_dir else None
+
+    def _publish(client):
+        if dry_run:
+            # Local-only rendering — no client needed.
+            from ..text_card_renderer import render_text_note
+
+            if out_dir_path is not None:
+                out_dir_path.mkdir(parents=True, exist_ok=True)
+            paths = render_text_note(
+                title=title, body=body, theme=theme,
+                output_dir=out_dir_path,
+                subtitle=subtitle,
+            )
+            print_success(f"Rendered {len(paths)} cards: {out_dir_path or paths[0].parent}")
+            return {"dry_run": True, "image_count": len(paths),
+                    "output_dir": str(paths[0].parent),
+                    "image_paths": [str(p) for p in paths],
+                    "theme": theme}
+
+        if unresolved:
+            print_warning(
+                f"{len(unresolved)} 个话题未能关联到可点击链接，将作为纯文字发布（不可点击）："
+                + "、".join(f"#{u}" for u in unresolved)
+                + "。可用 --topic-id 关键字=ID 强制关联。"
+            )
+
+        result = client.create_text_note(
+            title=title,
+            body=body,
+            topics=resolved_topics or None,
+            is_private=is_private,
+            theme=theme,
+            output_dir=out_dir_path,
+            subtitle=subtitle,
+            keep_artifacts=keep_artifacts,
+        )
+        if isinstance(result, dict):
+            result.setdefault("unresolved_topics", [f"#{u}" for u in unresolved])
+            result.setdefault("image_count", result.get("image_count"))
+            result.setdefault("theme", theme)
+            result.setdefault("is_private", is_private)
+        return result
+
+    if dry_run:
+        from ..text_card_renderer import render_text_note
+        if out_dir_path is not None:
+            out_dir_path.mkdir(parents=True, exist_ok=True)
+        paths = render_text_note(
+            title=title, body=body, theme=theme,
+            output_dir=out_dir_path,
+            subtitle=subtitle,
+        )
+        print_success(
+            f"[dry-run] Rendered {len(paths)} cards to "
+            f"{out_dir_path or paths[0].parent} ({theme} theme)"
+        )
+        payload = {
+            "dry_run": True,
+            "image_count": len(paths),
+            "output_dir": str(paths[0].parent),
+            "image_paths": [str(p) for p in paths],
+            "theme": theme,
+            "is_private": is_private,
+        }
+        if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
+            pass
+        return
+
+    handle_command(
+        ctx,
+        action=_publish,
+        render=lambda _data: print_success(
+            f"Text note published: {title}"
+            + (f" ({theme} theme, {len(_data.get('image_count', 0))} cards)" if isinstance(_data, dict) else "")
+            + (" (private)" if is_private else "")
+        ),
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )

@@ -16,7 +16,7 @@ class DashboardConfig:
     uploads_dir: Path
     screenshots_dir: Path
     publish_cooldown_seconds: int = 600
-    max_accounts: int = 10
+    max_accounts: int = 50
     worker_threads: int = 2
     request_interval_seconds: float = 1.0
     daily_request_limit: int = 2500
@@ -34,6 +34,7 @@ class DashboardConfig:
             root / "profiles",
             root / "uploads",
             root / "screenshots",
+            max_accounts=max(1, int(os.getenv("XHS_MAX_ACCOUNTS", "50"))),
             publish_cooldown_seconds=max(0, int(os.getenv("XHS_PUBLISH_COOLDOWN", "600"))),
             worker_threads=max(1, int(os.getenv("XHS_WORKERS", "2"))),
             request_interval_seconds=max(0.2, float(os.getenv("XHS_REQUEST_INTERVAL", "1.0"))),

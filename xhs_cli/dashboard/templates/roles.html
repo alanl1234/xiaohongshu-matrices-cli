@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}角色库{% endblock %}
+{% block content %}
+<header>
+  <div>
+    <p class="eyebrow">SHARED PERSONA LIBRARY</p>
+    <h1>角色库</h1>
+    <p>全局角色定义：一种角色可绑定多个账号，统一管理风格与行为边界。</p>
+  </div>
+</header>
+<section class="panel compact">
+  <h2>新建角色</h2>
+  <form method="post" class="inline-form">
+    <label>角色名 <input name="name" required maxlength="60" placeholder="例如：妈妈慢慢读"></label>
+    <label>唯一标识 <input name="slug" required maxlength="40" placeholder="例如：mama-reads" pattern="[a-z0-9-]+"></label>
+    <label>描述 <input name="description" maxlength="200" placeholder="简要描述此角色的定位"></label>
+    <label>风格参考 <input name="style_ref" maxlength="200" placeholder="例如：参考静静教主排版"></label>
+    <button>创建角色</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>角色列表</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>名称</th><th>标识</th><th>描述</th><th>风格参考</th><th>绑定账号数</th><th>操作</th></tr></thead>
+      <tbody>
+      {% for role in roles %}
+      <tr>
+        <td>{{ role.id }}</td>
+        <td><b>{{ role.name }}</b></td>
+        <td><code>{{ role.slug }}</code></td>
+        <td>{{ role.description or '—' }}</td>
+        <td>{{ role.style_ref or '—' }}</td>
+        <td>{{ role.account_count }}</td>
+        <td class="actions">
+          <form method="post" action="/roles/{{ role.id }}/delete" onsubmit="return confirm('确定删除角色「{{ role.name }}」吗？绑定的账号关系也会同步删除。')"><button class="danger">删除</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">尚未创建任何角色。先创建一个角色，再在账号页绑定到具体账号。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

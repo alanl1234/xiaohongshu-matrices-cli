@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xiaohongshu-matrices-cli"
-version = "0.9.2"
+version = "0.9.4"
 description = "A CLI and local dashboard for Xiaohongshu search, collection, and reviewed publishing"
 readme = "README.md"
 license = "Apache-2.0"
@@ -33,6 +33,7 @@ dependencies = [
     "uvicorn>=0.30",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]

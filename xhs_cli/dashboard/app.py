@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html_lib
 import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,160 @@ from .rate_limit import AccountRateLimiter
 from .utils import json_dumps, json_loads, now_iso, safe_name, split_terms
 
 
+def _e(value: Any) -> str:
+    """HTML-escape a value for safe inline rendering."""
+    return _html_lib.escape("" if value is None else str(value))
+
+
+def _render_api_health_card(check: dict) -> str:
+    """Render one API health check row as an HTML card (avoids f-string
+    escape sequences that break on Python 3.10/3.11)."""
+    status = _e(check.get("status", "unknown"))
+    endpoint = _e(check.get("endpoint", ""))
+    latency = check.get("latency_ms")
+    status_code = check.get("status_code")
+    error = check.get("error_message")
+    checked_at = _e(check.get("checked_at", ""))
+
+    latency_html = ""
+    if latency:
+        latency_html = (
+            '<span class="latency">' + _e(latency) + "ms</span>"
+        )
+    http_html = ""
+    if status_code:
+        http_html = "&nbsp;HTTP " + _e(status_code)
+    error_html = ""
+    if error:
+        error_html = (
+            '<p class="error">' + _e(error) + "</p>"
+        )
+
+    return (
+        '<div class="card">'
+        '<h3 style="margin:0 0 8px 0;font-size:15px;">'
+        f'<span class="status-dot {status}"></span>'
+        f"{endpoint}"
+        '<span style="color:var(--muted);font-weight:400;'
+        'font-size:13px;margin-left:8px;">'
+        f"{latency_html}{http_html}"
+        "</span></h3>"
+        f"{error_html}"
+        '<div style="font-size:12px;color:var(--muted);">'
+        f"检测时间: {checked_at}</div>"
+        "</div>"
+    )
+
+
+def _render_analytics_html(**ctx: Any) -> str:
+    """Render analytics page HTML directly (bypasses Jinja2 for stability)."""
+    from xml.sax.saxutils import escape as xml_escape
+
+    e = xml_escape
+    req = ctx["request"]
+    data = ctx["data"]
+    ranking = ctx.get("ranking", [])
+    days = ctx["days"]
+    account_id = ctx["account_id"]
+    accounts = ctx.get("accounts", [])
+
+    # Build account options
+    acct_opts = "".join(
+        f'<option value="{a["id"]}" {"selected" if account_id == a["id"] else ""}>{e(a["alias"])}</option>'
+        for a in accounts
+    )
+    # Build day options
+    day_opts = "".join(
+        f'<option value="{d}" {"selected" if days == d else ""}>最近 {d} 天</option>'
+        for d in [7, 30, 90]
+    )
+
+    # Stats
+    if data.get("snapshot_count", 0) == 0:
+        body = (
+            '<section class="panel"><p class="muted">'
+            "暂无数据。请确保 XHS_ANALYTICS_ENABLED=1 "
+            "且至少发布过一篇笔记。</p></section>"
+        )
+        chart_js = ""
+    else:
+        notes_html = ""
+        for i, note in enumerate(data.get("notes", [])[:10], start=1):
+            rank_cls = " silver" if i == 2 else " bronze" if i == 3 else ""
+            notes_html += (
+                f'<tr><td><span class="rank-badge{rank_cls}">{i}</span></td>'
+                f"<td>{e(str(note.get('title',''))[:24])}</td>"
+                f"<td>{note.get('likes',0)}</td>"
+                f"<td>{note.get('comments',0)}</td>"
+                f"<td>{note.get('collects',0)}</td>"
+                f"<td>{note.get('engagement_rate',0):.1f}</td></tr>"
+            )
+
+        ranking_html = ""
+        if ranking:
+            rank_rows = "".join(
+                f'<tr><td>{e(r["alias"])}</td><td>{r["snapshots"]}</td>'
+                f"<td>{(r.get('avg_er') or 0):.1f}</td></tr>"
+                for r in ranking
+            )
+            ranking_html = (
+                f'<section class="panel"><h2>账号对比</h2>'
+                f'<div class="table-wrap"><table>'
+                f'<tr><th>账号</th><th>快照数</th><th>平均互动率</th></tr>'
+                f'{rank_rows}</table></div></section>'
+            )
+
+        trend_data = data.get("trend", [])
+        chart_js = ""
+        if trend_data:
+            labels_js = ",".join(f"'{t['date']}'" for t in trend_data)
+            values_js = ",".join(str(t.get("avg_likes", 0)) for t in trend_data)
+            chart_js = f"""<script>
+new Chart(document.getElementById('trendChart'),{{
+  type:'line',
+  data:{{labels:[{labels_js}],datasets:[{{label:'日均点赞',data:[{values_js}],
+  borderColor:'#ff2442',backgroundColor:'rgba(255,36,66,0.1)',fill:true,tension:0.3}}]}},
+  options:{{responsive:true,maintainAspectRatio:true}}
+}});</script>"""
+
+        body = (
+            '<section class="panel">'
+            '<div class="stats">'
+            f'<article><b>{data["snapshot_count"]}</b><span>快照次数</span></article>'
+            f'<article><b>{len(data.get("notes",[]))}</b><span>已发布笔记</span></article>'
+            + (f'<article><b>{e(ranking[0]["alias"])}</b><span>最佳账号</span></article>' if ranking else "")
+            + '</div>'
+            '<div class="card"><canvas id="trendChart"></canvas></div></section>'
+            '<section class="panel"><h2>笔记排行</h2>'
+            '<div class="table-wrap"><table>'
+            '<tr><th>#</th><th>笔记</th><th>点赞</th><th>评论</th><th>收藏</th><th>互动率</th></tr>'
+            + notes_html
+            + '</table></div></section>'
+            + ranking_html
+        )
+
+    return f"""<!doctype html><html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>效果度量 · 小红书运营后台</title>
+<link rel="stylesheet" href="{req.url_for('static', path='/style.css')}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>.rank-badge{{display:inline-block;width:22px;height:22px;line-height:22px;border-radius:50%;text-align:center;font-size:12px;font-weight:700;background:var(--red);color:#fff}}
+.rank-badge.silver{{background:#bdc3c7}}.rank-badge.bronze{{background:#e67e22}}canvas{{max-height:300px}}</style>
+</head><body>
+<aside><div class="brand"><span>RED</span> 运营台</div><nav>
+<a href="/">总览</a><a href="/accounts">账号管理</a><a href="/roles">角色库</a>
+<a href="/searches">爆款搜索</a><a href="/library">素材库</a><a href="/publish">审核与发布</a>
+<a href="/materials">授权素材与二创</a><a href="/personas">账号人设</a><a href="/research">AI 研究</a>
+<a href="/engagement">互动工作台</a><a href="/rules">互动规则</a></nav>
+<small>仅在本机运行<br>{ctx.get('data_dir','')}</small></aside>
+<main><header><div><p class="eyebrow">PERFORMANCE</p><h1>效果度量</h1>
+<p>发布后数据快照与账号对比趋势。</p></div></header>
+<section class="panel compact"><form class="inline-form" method="get" action="/analytics">
+<label>账号 <select name="account_id">{acct_opts}</select></label>
+<label>周期 <select name="days">{day_opts}</select></label><button>查看</button></form></section>
+{body}{chart_js}</main></body></html>"""
+
+
 def create_app(data_dir: str | Path | None = None) -> FastAPI:
     config = DashboardConfig.load(data_dir)
     db = Database(config.database_path)
@@ -61,6 +216,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="xhs-interactive")
     root = Path(__file__).parent
     templates = Jinja2Templates(directory=root / "templates")
+    templates.env.auto_reload = True
     templates.env.filters["fromjson"] = lambda value: json_loads(value, [])
 
     @asynccontextmanager
@@ -121,19 +277,64 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return render(request, "dashboard.html", active="dashboard", stats=stats, jobs=jobs, tasks=tasks)
 
     @app.get("/accounts", response_class=HTMLResponse)
-    def account_page(request: Request):
+    def account_page(
+        request: Request,
+        group_filter: str = "",
+        status_filter: str = "",
+        role_filter: str = "",
+        search: str = "",
+    ):
+        where_clauses: list[str] = []
+        params: list[Any] = []
+
+        if group_filter:
+            where_clauses.append("a.group_name=?")
+            params.append(group_filter)
+        if status_filter == "ready":
+            where_clauses.append("a.login_status='ready' AND a.enabled=1")
+        elif status_filter == "unbound":
+            where_clauses.append("a.login_status='unbound'")
+        elif status_filter == "disabled":
+            where_clauses.append("a.enabled=0")
+        if role_filter:
+            where_clauses.append("EXISTS (SELECT 1 FROM account_roles ar2 WHERE ar2.account_id=a.id AND ar2.role_id=?)")
+            params.append(int(role_filter))
+        if search:
+            where_clauses.append("(a.alias LIKE ? OR a.nickname LIKE ? OR a.xhs_user_id LIKE ?)")
+            like = f"%{search}%"
+            params.extend([like, like, like])
+
+        where = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        accounts = db.fetchall(f"SELECT a.* FROM accounts a{where} ORDER BY a.id", tuple(params))
+
+        role_bindings = db.fetchall(
+            """SELECT ar.account_id, r.id role_id, r.name role_name, r.slug role_slug, ar.is_primary
+            FROM account_roles ar JOIN roles r ON r.id=ar.role_id ORDER BY ar.id"""
+        )
+        roles_by_account: dict[int, list[dict[str, Any]]] = {}
+        for rb in role_bindings:
+            roles_by_account.setdefault(int(rb["account_id"]), []).append(rb)
         return render(
             request,
             "accounts.html",
             active="accounts",
-            accounts=db.fetchall("SELECT * FROM accounts ORDER BY id"),
+            accounts=accounts,
+            roles_by_account=roles_by_account,
+            all_roles=db.fetchall("SELECT * FROM roles ORDER BY id"),
+            groups=[r["group_name"] for r in db.fetchall(
+                "SELECT DISTINCT group_name FROM accounts WHERE group_name!='' ORDER BY group_name"
+            )],
+            group_filter=group_filter,
+            status_filter=status_filter,
+            role_filter=role_filter,
+            search=search,
             message=request.query_params.get("message"),
         )
 
     @app.post("/accounts")
-    def create_account(alias: str = Form(...)):
+    def create_account(alias: str = Form(...), group_name: str = Form("")):
         try:
-            browsers.create_account(alias)
+            browsers.create_account(alias, group_name.strip())
             return redirect("/accounts", "Profile created; select Bind to scan the QR code")
         except Exception as exc:
             return redirect("/accounts", str(exc))
@@ -163,6 +364,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             return redirect("/accounts", "Account profile deleted")
         except Exception as exc:
             return redirect("/accounts", str(exc))
+
+    @app.post("/accounts/{account_id}/group")
+    def set_account_group(account_id: int, group_name: str = Form("")):
+        db.update("accounts", account_id, group_name=group_name.strip())
+        return redirect("/accounts")
 
     @app.post("/accounts/{account_id}/toggle")
     def toggle_account(account_id: int):
@@ -381,6 +587,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         fields = "id,alias,xhs_user_id,nickname,login_status,enabled,last_verified_at"
         return {"ok": True, "data": db.fetchall(f"SELECT {fields} FROM accounts")}
 
+    @app.get("/api/account-groups")
+    def api_account_groups():
+        rows = db.fetchall("SELECT DISTINCT group_name FROM accounts WHERE group_name!='' ORDER BY group_name")
+        return {"ok": True, "data": [r["group_name"] for r in rows]}
+
     @app.get("/api/search-jobs/{job_id}")
     def api_search_job(job_id: int):
         job = db.fetchone("SELECT * FROM search_jobs WHERE id=?", (job_id,))
@@ -400,21 +611,94 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def analytics_page(request: Request, days: int = 30, account_id: int = 0):
         data = analytics.summary(account_id=None if account_id == 0 else account_id, days=days)
         ranking = analytics.account_ranking(days=days)
-        return templates.TemplateResponse("analytics.html", {
-            "request": request,
-            "data": data,
-            "ranking": ranking,
-            "days": days,
-            "account_id": account_id,
-            "accounts": db.fetchall("SELECT id,alias FROM accounts"),
-        })
+        html = _render_analytics_html(
+            request=request, data=data, ranking=ranking,
+            days=days, account_id=account_id,
+            accounts=db.fetchall("SELECT id,alias FROM accounts"),
+            data_dir=str(config.data_dir),
+        )
+        return HTMLResponse(html)
 
     @app.get("/api-health", response_class=HTMLResponse)
     def api_health_page(request: Request):
-        return templates.TemplateResponse("api_health.html", {
-            "request": request,
-            "latest": health_monitor.latest(),
-        })
+        # Render this page directly (bypassing Jinja2 TemplateResponse)
+        # because api_health.html is a standalone template and the shared
+        # env's custom filter causes Jinja2 3.1's cache key to become
+        # unhashable, which would break this route AND every subsequent
+        # template render in the process.
+        latest = health_monitor.latest() or []
+        rows_html = "".join(
+            _render_api_health_card(c) for c in latest
+        )
+        if latest:
+            healthy = sum(1 for c in latest if c.get("status") == "healthy")
+            total = len(latest)
+            tag_cls = "ok" if healthy == total else ("warn" if healthy > 0 else "bad")
+            summary_html = (
+                f'<div class="summary">'
+                f'<span class="tag {tag_cls}">{healthy}/{total} 正常</span>'
+                f'</div>'
+            )
+            empty_html = ""
+            probe_label = "重新检测"
+        else:
+            summary_html = ""
+            empty_html = '<p style="color:var(--muted);">暂无检测记录。请确保 XHS_API_HEALTH_ENABLED=1。</p>'
+            probe_label = "立即检测"
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 健康</title>
+<style>
+  :root {{ --bg:#fff; --text:#1a1a1a; --muted:#666; --card:#f9f9f9; --border:#e0e0e0; }}
+  body {{ margin:0; padding:24px; font:14px/1.6 system-ui; background:var(--bg); color:var(--text); }}
+  h1 {{ font-size:20px; margin-bottom:16px; }}
+  .card {{ background:var(--card); border:1px solid var(--border);
+           border-radius:8px; padding:16px; margin-bottom:16px; }}
+  .status-dot {{ display:inline-block; width:12px; height:12px;
+                 border-radius:50%; margin-right:8px; }}
+  .status-dot.healthy {{ background:#27ae60; }}
+  .status-dot.degraded {{ background:#f39c12; }}
+  .status-dot.timeout,.status-dot.unreachable {{ background:#e74c3c; }}
+  .status-dot.unknown {{ background:#bdc3c7; }}
+  table {{ width:100%; border-collapse:collapse; }}
+  td,th {{ padding:10px 12px; text-align:left;
+           border-bottom:1px solid var(--border); font-size:13px; }}
+  th {{ font-weight:600; color:var(--muted); }}
+  .latency {{ font-family:monospace; }}
+  .error {{ color:#e74c3c; font-size:12px; max-width:300px;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .btn {{ display:inline-block; padding:8px 20px; background:#1a1a1a;
+          color:#fff; border:none; border-radius:4px; cursor:pointer;
+          text-decoration:none; font-size:14px; }}
+  .btn:hover {{ opacity:0.8; }}
+  .summary {{ display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap; }}
+  .summary .tag {{ padding:6px 14px; border-radius:6px; font-size:13px; font-weight:600; }}
+  .summary .tag.ok {{ background:#d4efdf; color:#1e8449; }}
+  .summary .tag.warn {{ background:#fdebd0; color:#b9770e; }}
+  .summary .tag.bad {{ background:#fadbd8; color:#c0392b; }}
+</style>
+</head>
+<body>
+<h1>API 健康监控</h1>
+{empty_html}
+{summary_html}
+{rows_html}
+<p><a href="#" onclick="probeNow();return false;" class="btn">{probe_label}</a></p>
+<script>
+async function probeNow() {{
+  const btn = event.target;
+  btn.textContent = "检测中…";
+  btn.disabled = true;
+  try {{ await fetch('/api/health/probe', {{method:'POST'}}); }} catch(e) {{}}
+  location.reload();
+}}
+</script>
+</body>
+</html>"""
+        return HTMLResponse(html)
 
     @app.get("/api/analytics/summary")
     def api_analytics_summary(days: int = 30, account_id: int = 0):

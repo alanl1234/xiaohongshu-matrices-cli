@@ -4,6 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}小红书运营后台{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
 <aside>
@@ -11,6 +12,7 @@
   <nav>
     <a class="{{ 'active' if active=='dashboard' }}" href="/">总览</a>
     <a class="{{ 'active' if active=='accounts' }}" href="/accounts">账号管理</a>
+    <a class="{{ 'active' if active=='roles' }}" href="/roles">角色库</a>
     <a class="{{ 'active' if active=='searches' }}" href="/searches">爆款搜索</a>
     <a class="{{ 'active' if active=='library' }}" href="/library">素材库</a>
     <a class="{{ 'active' if active=='publish' }}" href="/publish">审核与发布</a>

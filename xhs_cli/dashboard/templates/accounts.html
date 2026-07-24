@@ -1,8 +1,92 @@
 {% extends "base.html" %}{% block title %}账号管理{% endblock %}{% block content %}
-<header><div><p class="eyebrow">ISOLATED PROFILES</p><h1>账号管理</h1><p>每个账号使用独立浏览器档案；数据库不保存明文 Cookie。</p></div></header>
-<section class="panel compact"><h2>添加账号档案</h2><form method="post" class="inline-form"><label>内部别名<input name="alias" required maxlength="40" placeholder="例如：品牌主账号"></label><button>创建档案</button></form></section>
-<section class="panel"><div class="panel-head"><h2>账号列表</h2><span>最多 10 个</span></div>
-<div class="table-wrap"><table><thead><tr><th>别名</th><th>小红书身份</th><th>状态</th><th>最后验证</th><th>操作</th></tr></thead><tbody>
-{% for account in accounts %}<tr><td><b>{{ account.alias }}</b><small>#{{ account.id }}</small></td><td>{{ account.nickname or '未识别' }}<small>{{ account.xhs_user_id }}</small></td><td><span class="status {{ account.login_status }}">{{ account.login_status }}</span>{% if account.last_error %}<small class="error">{{ account.last_error }}</small>{% endif %}</td><td>{{ account.last_verified_at or '—' }}</td><td class="actions"><form method="post" action="/accounts/{{ account.id }}/bind"><button class="secondary">扫码绑定</button></form><form method="post" action="/accounts/{{ account.id }}/verify"><button class="secondary">验证</button></form><form method="post" action="/accounts/{{ account.id }}/repair-profile"><button class="ghost">修复档案锁</button></form><form method="post" action="/accounts/{{ account.id }}/toggle"><button class="ghost">{{ '停用' if account.enabled else '启用' }}</button></form><form method="post" action="/accounts/{{ account.id }}/delete" onsubmit="return confirm('确定删除该账号档案吗？有历史任务的账号将被拒绝删除，请改用停用。')"><button class="danger">删除档案</button></form></td></tr>
-{% else %}<tr><td colspan="5" class="empty">先创建一个账号档案</td></tr>{% endfor %}</tbody></table></div></section>
+<header><div><p class="eyebrow">ISOLATED PROFILES</p><h1>账号管理</h1><p>每个账号使用独立浏览器档案；数据库不保存明文 Cookie。支持分组管理和角色绑定。</p></div></header>
+
+<section class="panel compact">
+  <h2>添加账号档案</h2>
+  <form method="post" class="inline-form">
+    <label>内部别名 <input name="alias" required maxlength="40" placeholder="例如：品牌主账号"></label>
+    <label>分组 <input name="group_name" maxlength="40" placeholder="例如：品牌号 / 矩阵号" list="group-datalist">
+      <datalist id="group-datalist">{% for g in groups %}<option value="{{ g }}">{% endfor %}</datalist>
+    </label>
+    <button>创建档案</button>
+  </form>
+</section>
+
+<section class="panel"><div class="panel-head"><h2>账号列表</h2><span>最多 50 个 · 共 {{ accounts|length }} 个</span></div>
+
+<div class="filter-bar">
+  <form method="get" class="inline-form">
+    <label>分组
+      <select name="group_filter" onchange="this.form.submit()">
+        <option value="">全部分组</option>
+        {% for g in groups %}<option value="{{ g }}" {{ 'selected' if group_filter==g }}>{{ g }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>状态
+      <select name="status_filter" onchange="this.form.submit()">
+        <option value="">全部状态</option>
+        <option value="ready" {{ 'selected' if status_filter=='ready' }}>已登录</option>
+        <option value="unbound" {{ 'selected' if status_filter=='unbound' }}>未绑定</option>
+        <option value="disabled" {{ 'selected' if status_filter=='disabled' }}>已停用</option>
+      </select>
+    </label>
+    <label>角色
+      <select name="role_filter" onchange="this.form.submit()">
+        <option value="">全部角色</option>
+        {% for r in all_roles %}<option value="{{ r.id }}" {{ 'selected' if role_filter==r.id|string }}>{{ r.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>搜索 <input name="search" placeholder="别名/昵称/ID" value="{{ search or '' }}"><button type="submit">筛选</button></label>
+  </form>
+</div>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>别名</th><th>分组</th><th>角色</th><th>小红书身份</th><th>状态</th><th>最后验证</th><th>操作</th></tr></thead>
+  <tbody>
+  {% for account in accounts %}
+  <tr>
+    <td><b>{{ account.alias }}</b><small>#{{ account.id }}</small></td>
+    <td>
+      {% if account.group_name %}<span class="tag group">{{ account.group_name }}</span>{% else %}<span class="muted">—</span>{% endif %}
+      <form method="post" action="/accounts/{{ account.id }}/group" class="inline-form micro" style="margin-top:4px">
+        <input name="group_name" size="10" placeholder="设分组" value="{{ account.group_name }}">
+        <button class="ghost" style="padding:2px 6px;font-size:11px">保存</button>
+      </form>
+    </td>
+    <td class="role-cell">
+      {% set account_roles = roles_by_account.get(account.id, []) %}
+      {% for rb in account_roles %}
+        <span class="badge role {{ 'primary' if rb.is_primary }}">{{ rb.role_name }}</span>
+        <form method="post" action="/accounts/{{ account.id }}/unbind-role" class="inline-form micro" style="display:inline">
+          <input type="hidden" name="role_id" value="{{ rb.role_id }}">
+          <button class="ghost" style="padding:1px 4px;font-size:10px;color:#999" title="解绑">&times;</button>
+        </form>
+      {% endfor %}
+      {% if not account_roles %}<span class="muted">—</span>{% endif %}
+      {% if all_roles %}
+      <form method="post" action="/accounts/{{ account.id }}/bind-role" class="inline-form micro" style="margin-top:4px;display:flex;gap:4px;align-items:center">
+        <select name="role_id" style="font-size:11px;padding:2px">
+          {% for r in all_roles %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+        </select>
+        <label style="font-size:11px;white-space:nowrap"><input type="checkbox" name="is_primary" value="1"> 主</label>
+        <button style="padding:2px 6px;font-size:11px">绑定</button>
+      </form>
+      {% endif %}
+    </td>
+    <td>{{ account.nickname or '未识别' }}<small>{{ account.xhs_user_id }}</small></td>
+    <td><span class="status {{ account.login_status }}">{{ account.login_status }}</span>{% if account.last_error %}<small class="error">{{ account.last_error }}</small>{% endif %}</td>
+    <td>{{ account.last_verified_at or '—' }}</td>
+    <td class="actions">
+      <form method="post" action="/accounts/{{ account.id }}/bind"><button class="secondary">扫码绑定</button></form>
+      <form method="post" action="/accounts/{{ account.id }}/verify"><button class="secondary">验证</button></form>
+      <form method="post" action="/accounts/{{ account.id }}/repair-profile"><button class="ghost">修复档案锁</button></form>
+      <form method="post" action="/accounts/{{ account.id }}/toggle"><button class="ghost">{{ '停用' if account.enabled else '启用' }}</button></form>
+      <form method="post" action="/accounts/{{ account.id }}/delete" onsubmit="return confirm('确定删除该账号档案吗？有历史任务的账号将被拒绝删除，请改用停用。')"><button class="danger">删除档案</button></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="empty">先创建一个账号档案</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div></section>
 {% endblock %}

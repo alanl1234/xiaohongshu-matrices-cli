@@ -26,6 +26,26 @@ from .html_parser import extract_note_from_html
 
 logger = logging.getLogger(__name__)
 
+
+def _first_paragraph(body: str) -> str:
+    """Return the first non-heading paragraph of ``body``, used as note desc."""
+    for paragraph in re.split(r"\n{2,}", body.strip()):
+        line = paragraph.strip()
+        if not line or line.startswith(("# ", "## ", "### ", "> ")):
+            continue
+        return line[:200]
+    return ""
+
+
+def desc_or_first_para(body: str, fallback: str = "") -> str:
+    """Pick a short note description: first paragraph of ``body``, else ``fallback``.
+
+    The body of a ``create_text_note`` is fully rendered into the image cards,
+    so the public-facing ``desc`` only needs to be a short preview.
+    """
+    picked = _first_paragraph(body)
+    return picked if picked else fallback
+
 _SEARCH_DEFAULT_FILTERS = [
     {"tags": ["general"], "type": "sort_type"},
     {"tags": ["不限"], "type": "filter_note_type"},
@@ -663,6 +683,113 @@ class CreatorEndpointsMixin:
                 "referer": f"{CREATOR_HOST}/",
             },
         )
+
+    def create_text_note(
+        self,
+        title: str,
+        body: str,
+        topics: list[dict[str, str]] | None = None,
+        is_private: bool = False,
+        *,
+        theme: str = "default",
+        output_dir: Path | str | None = None,
+        subtitle: str = "",
+        keep_artifacts: bool = False,
+    ) -> Any:
+        """Publish a long-form ``title + body`` as a multi-image carousel.
+
+        The text is laid out into 1 cover + N content cards by
+        :mod:`xhs_cli.text_card_renderer` (pixel-precise Pillow layout);
+        each rendered PNG is uploaded via the existing image upload
+        pipeline, then :meth:`create_image_note` is called with the
+        resulting ``file_id`` list. From the server side it is just an
+        ordinary image note, but readers see a typeset reading carousel.
+
+        Parameters
+        ----------
+        title : str
+            Note title (also used as the cover page heading).
+        body : str
+            Markdown-ish body. ``---`` separators mark manual page breaks;
+            otherwise paragraphs are auto-grouped.
+        topics : list[dict] | None
+            Topic payloads returned by ``resolve_topic_payload``.
+        is_private : bool
+            When True, publish as a private note (only the author sees it).
+            **Default for safe testing.**
+        theme : str
+            Layout theme: ``default`` (clean), ``warm`` (parental/cozy),
+            ``playful`` (vibrant). See :func:`render_text_note` for
+            what each looks like.
+        output_dir : Path | str | None
+            Directory for the rendered PNG files. When None a system temp
+            directory is used; pass a path to retain the artifacts.
+        subtitle : str
+            Optional cover-page subtitle (defaults to first paragraph of
+            ``body``).
+        keep_artifacts : bool
+            When True, rendered PNGs are kept (useful for inspection);
+            otherwise the temp directory is left to the OS to clean up.
+
+        Returns
+        -------
+        dict | Any
+            Whatever the underlying :meth:`create_image_note` API
+            returns (note id / share link). The artifact directory is
+            attached under the ``_artifacts`` key for downstream tooling.
+        """
+        # Import here to keep the optional dep out of the cold path.
+        from .text_card_renderer import render_text_note
+
+        if isinstance(output_dir, str):
+            output_dir = Path(output_dir)
+
+        # Render to PNGs.
+        if output_dir is None:
+            paths = render_text_note(
+                title=title, body=body, theme=theme, subtitle=subtitle,
+            )
+        else:
+            paths = render_text_note(
+                title=title, body=body, theme=theme,
+                output_dir=output_dir, subtitle=subtitle,
+            )
+
+        if not paths:
+            raise RuntimeError("text_card_renderer produced no images")
+
+        # Upload each card.
+        file_ids: list[str] = []
+        for image_path in paths:
+            permit = self.get_upload_permit(file_type="image", count=1)
+            self.upload_file(
+                permit["fileId"], permit["token"], str(image_path),
+                content_type="image/png",
+            )
+            file_ids.append(permit["fileId"])
+            logger.info("Uploaded text-card image: %s -> %s", image_path.name, permit["fileId"])
+
+        # Publish. The public-facing desc is the title (since the title and
+        # body were both rendered into the images themselves).
+        result = self.create_image_note(
+            title=title,
+            desc=desc_or_first_para(body),
+            image_file_ids=file_ids,
+            topics=topics,
+            is_private=is_private,
+        )
+
+        # Surface artifact paths + render info for downstream tooling.
+        if isinstance(result, dict):
+            if keep_artifacts:
+                result.setdefault("_artifacts", {
+                    "image_count": len(paths),
+                    "image_paths": [str(p) for p in paths],
+                    "output_dir": str(paths[0].parent),
+                    "theme": theme,
+                })
+            result["image_count"] = len(paths)
+        return result
 
     def delete_note(self, note_id: str) -> dict[str, Any]:
         try:

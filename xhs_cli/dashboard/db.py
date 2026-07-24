@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS accounts (
  xhs_user_id TEXT NOT NULL DEFAULT '', nickname TEXT NOT NULL DEFAULT '',
  profile_dir TEXT NOT NULL UNIQUE, login_status TEXT NOT NULL DEFAULT 'unbound',
  last_verified_at TEXT, enabled INTEGER NOT NULL DEFAULT 1, last_publish_at TEXT,
- last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+ last_error TEXT, group_name TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS search_jobs (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, account_id INTEGER,
  keywords_json TEXT NOT NULL DEFAULT '[]', topics_json TEXT NOT NULL DEFAULT '[]',
@@ -84,6 +85,8 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as con:
             con.executescript(SCHEMA)
+            # Lightweight column migrations for existing DBs.
+            self._ensure_column(con, "accounts", "group_name", "TEXT NOT NULL DEFAULT ''")
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         with self._lock, self.connect() as con:
@@ -100,11 +103,19 @@ class Database:
         with self.connect() as con:
             return [dict(row) for row in con.execute(sql, params).fetchall()]
 
-    def create_account(self, alias: str, profile_dir: str) -> int:
+    def _ensure_column(self, con: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+        """Idempotently add a column to an existing table (no-op if already present)."""
+        rows = con.execute(f"PRAGMA table_info({table})").fetchall()
+        if any(r[1] == column for r in rows):
+            return
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        con.commit()
+
+    def create_account(self, alias: str, profile_dir: str, group_name: str = "") -> int:
         now = now_iso()
         return self.execute(
-            "INSERT INTO accounts(alias,profile_dir,created_at,updated_at) VALUES(?,?,?,?)",
-            (alias, profile_dir, now, now),
+            "INSERT INTO accounts(alias,profile_dir,group_name,created_at,updated_at) VALUES(?,?,?,?,?)",
+            (alias, profile_dir, group_name, now, now),
         )
 
     def update(self, table: str, row_id: int, **values: Any) -> None:
