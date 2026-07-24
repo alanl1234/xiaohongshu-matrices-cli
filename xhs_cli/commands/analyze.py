@@ -82,7 +82,7 @@ def analyze_user(
                 if delay:
                     time.sleep(delay)
 
-        report = build_layered_report(records, user_info, top_n=top, deep=deep)
+        report = build_layered_report(records, user_info, top_n=top, deep=deep, user_id=user_id)
 
         if ai:
             try:

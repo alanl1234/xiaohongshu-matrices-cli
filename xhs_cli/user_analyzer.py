@@ -417,13 +417,14 @@ def build_layered_report(
     *,
     top_n: int = 10,
     deep: bool = False,
+    user_id: str = "",
 ) -> dict[str, Any]:
     """Assemble the full layered report dict from analysis records."""
     if not records:
         return {"empty": True}
     has_topics = any(r["topics"] for r in records)
     report = {
-        "user_id": records[0].get("note_id", ""),
+        "user_id": user_id,
         "layer0_overview": _build_overview(records, user_info or {}, deep),
         "layer1_tiers": _build_tiers(records),
         "layer2_themes": _topic_themes(records) if has_topics else _title_themes(records),

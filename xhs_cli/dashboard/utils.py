@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-COUNT_SUFFIXES = {"万": 10_000, "w": 10_000, "W": 10_000, "千": 1_000, "k": 1_000, "K": 1_000}
+COUNT_SUFFIXES = {"亿": 100_000_000, "万": 10_000, "w": 10_000, "W": 10_000, "千": 1_000, "k": 1_000, "K": 1_000}
 
 
 def now_iso() -> str:

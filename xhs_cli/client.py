@@ -135,7 +135,8 @@ class XhsClient(
             raise XhsApiError(f"Non-JSON response: {text[:200]}") from None
 
         if data.get("success"):
-            return data.get("data", data.get("success"))
+            payload = data.get("data")
+            return payload if isinstance(payload, dict) else data
 
         code = data.get("code")
         if code == 300012:
