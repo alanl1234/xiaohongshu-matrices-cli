@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
+import secrets
 import shutil
 import sqlite3
 import stat
@@ -13,6 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,8 @@ from ..command_normalizers import normalize_xhs_user_payload
 from .config import DashboardConfig
 from .db import Database
 from .utils import is_within, now_iso, safe_name
+
+logger = logging.getLogger(__name__)
 
 HOME_URL = "https://www.xiaohongshu.com/"
 
@@ -31,6 +36,31 @@ class AccountBrowserBusy(RuntimeError):
 
 class _CamoufoxNotReady(RuntimeError):
     """Camoufox binary not found — user needs to run `python -m camoufox fetch`."""
+
+
+# Web-internal QR-code bind session tuning.
+_QR_BIND_REFRESH_S = 15  # re-screenshot the QR canvas this often (codes rotate)
+_QR_BIND_POLL_S = 2  # cookie/web-session poll cadence
+_QR_BIND_TIMEOUT_S = 300  # max time before the session is marked expired
+
+
+@dataclass
+class _QrBindState:
+    """Volatile state of an in-progress web QR-code bind session.
+
+    Lives in ``AccountBrowserService._qr_sessions`` and is read by the
+    dashboard routes while the (headless) browser loop runs in a worker thread.
+    """
+
+    state: str = "starting"  # starting|awaiting_scan|scanned|ready|error|expired|cancelled
+    error: str | None = None
+    token: str = ""
+    qr_path: str | None = None
+    qr_generated_at: float = 0.0
+    started_at: float = 0.0
+    finished_at: float = 0.0
+    stop: bool = False
+    scanned_detected: bool = False
 
 
 def _try_launch_camoufox(**kwargs):
@@ -103,6 +133,7 @@ class AccountBrowserService:
         self.config = config
         self._locks_guard = threading.Lock()
         self._profile_locks: dict[int, threading.Lock] = {}
+        self._qr_sessions: dict[int, _QrBindState] = {}
 
     @contextmanager
     def _browser_slot(self, account_id: int):
@@ -400,3 +431,179 @@ class AccountBrowserService:
         except Exception as exc:
             self.db.update("accounts", account_id, login_status="needs_login", last_error=str(exc))
             raise
+
+    # ─── Web-internal QR-code bind (headless, no desktop window) ─────────────
+
+    def qr_bind_begin(self, account_id: int) -> _QrBindState:
+        """Initialise (or reuse) a web QR bind session and return its state."""
+        self._account(account_id)  # validate existence early
+        existing = self._qr_sessions.get(account_id)
+        if existing and existing.state not in ("ready", "error", "expired", "cancelled"):
+            return existing  # a live session is already running
+        state = _QrBindState(
+            state="starting",
+            token=secrets.token_hex(16),
+            started_at=time.time(),
+        )
+        self._qr_sessions[account_id] = state
+        return state
+
+    def qr_bind_run(self, account_id: int, qr_dir: Path, timeout_seconds: int = _QR_BIND_TIMEOUT_S) -> None:
+        """Blocking loop driving a headless Camoufox to complete QR login.
+
+        Must be invoked on a worker thread (e.g. ``executor.submit``). It holds
+        the account profile lock and the Camoufox context until login settles or
+        the session is cancelled. The QR PNG is written to ``qr_dir`` so the
+        dashboard can stream it to the browser.
+        """
+        account = self._account(account_id)
+        profile = Path(account["profile_dir"]).resolve()
+        state = self._qr_sessions.get(account_id)
+        if state is None:
+            return
+        qr_path = Path(qr_dir) / f"qr_bind_{account_id}.png"
+        state.qr_path = str(qr_path)
+        with self._browser_slot(account_id):
+            try:
+                self._prepare_profile(profile)
+                self._qr_bind_loop(account_id, account, qr_path, timeout_seconds, state)
+            except AccountBrowserBusy as exc:
+                self.db.update("accounts", account_id, login_status="needs_login", last_error=str(exc))
+                state.state = "error"
+                state.error = str(exc)
+            finally:
+                self._cleanup_stale_lock(profile)
+
+    def _qr_bind_loop(self, account_id, account, qr_path, timeout_seconds, state):
+        from camoufox.addons import DefaultAddons
+
+        self.db.update("accounts", account_id, login_status="binding", last_error=None)
+        deadline = time.time() + timeout_seconds
+        last_qr_refresh = 0.0
+        try:
+            with _try_launch_camoufox(
+                headless=True,
+                locale="zh-CN",
+                persistent_context=True,
+                user_data_dir=account["profile_dir"],
+                humanize=True,
+                exclude_addons=[DefaultAddons.UBO],
+            ) as context:
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(HOME_URL + "login", wait_until="domcontentloaded", timeout=60_000)
+                while time.time() < deadline:
+                    if state.stop:
+                        state.state = "cancelled"
+                        state.finished_at = time.time()
+                        self.db.update(
+                            "accounts", account_id, login_status="needs_login", last_error="用户取消绑定"
+                        )
+                        return
+                    cookies = self._cookie_dict(context)
+                    if cookies.get("a1") and cookies.get("web_session"):
+                        try:
+                            with XhsClient(cookies) as client:
+                                user = normalize_xhs_user_payload(client.get_self_info())
+                        except Exception as exc:
+                            state.error = str(exc)
+                        else:
+                            if user.get("id") and not user.get("guest"):
+                                self._ensure_unique_identity(account_id, str(user["id"]))
+                                self.db.update(
+                                    "accounts",
+                                    account_id,
+                                    xhs_user_id=str(user["id"]),
+                                    nickname=str(user["nickname"]),
+                                    login_status="ready",
+                                    last_verified_at=now_iso(),
+                                    last_error=None,
+                                )
+                                state.state = "ready"
+                                state.finished_at = time.time()
+                                qr_path.unlink(missing_ok=True)
+                                return
+                    # Refresh QR screenshot (first pass + periodically)
+                    if (time.time() - last_qr_refresh > _QR_BIND_REFRESH_S) or not qr_path.exists():
+                        try:
+                            self._capture_qr(page, qr_path)
+                            state.qr_generated_at = time.time()
+                            last_qr_refresh = time.time()
+                            if state.state in ("starting", "awaiting_scan", "scanned") and not state.stop:
+                                state.state = "awaiting_scan"
+                            if self._detect_scanned(page) and state.state == "awaiting_scan":
+                                state.state = "scanned"
+                                state.scanned_detected = True
+                        except Exception as exc:
+                            if state.state != "ready":
+                                state.state = "error"
+                                state.error = f"无法抓取登录二维码：{exc}"
+                                logger.warning("qr_bind QR capture failed for account %s: %s", account_id, exc)
+                    time.sleep(_QR_BIND_POLL_S)
+        except Exception as exc:
+            self.db.update("accounts", account_id, login_status="needs_login", last_error=str(exc))
+            state.state = "error"
+            state.error = str(exc)
+            return
+        # Timed out without a session
+        state.state = "expired"
+        state.error = "二维码绑定超时（未扫码或未完成确认）"
+        self.db.update("accounts", account_id, login_status="needs_login", last_error=state.error)
+
+    @staticmethod
+    def _capture_qr(page, qr_path: Path) -> None:
+        """Screenshot the login QR code. Prefer the canvas, fall back to an img."""
+        try:
+            canvas = page.locator("canvas").first
+            canvas.wait_for(timeout=8_000)
+            canvas.screenshot(path=str(qr_path))
+            return
+        except Exception:
+            pass
+        for sel in ("img[src*='qr']", ".qrcode img", ".login-qrcode img", "img[alt*='二维码']"):
+            try:
+                img = page.locator(sel).first
+                img.wait_for(timeout=3_000)
+                img.screenshot(path=str(qr_path))
+                return
+            except Exception:
+                continue
+        raise RuntimeError("登录页未找到二维码元素（canvas/img）")
+
+    @staticmethod
+    def _detect_scanned(page) -> bool:
+        """Best-effort detection of the 'scanned, confirm on phone' hint."""
+        for text in ("已扫描", "扫码成功", "请在手机上确认", "scanned"):
+            try:
+                if page.get_by_text(text, exact=False).count() > 0:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def qr_bind_status(self, account_id: int) -> dict[str, Any]:
+        state = self._qr_sessions.get(account_id)
+        if not state:
+            return {"state": "none"}
+        active = state.state in ("starting", "awaiting_scan", "scanned")
+        return {
+            "state": state.state,
+            "error": state.error,
+            "token": state.token if active else None,
+            "qr_age": int(time.time() - state.qr_generated_at) if state.qr_generated_at else None,
+            "scanned": state.scanned_detected,
+        }
+
+    def qr_bind_image_path(self, account_id: int, token: str) -> str | None:
+        state = self._qr_sessions.get(account_id)
+        if not state or not state.token or state.token != token:
+            return None
+        if state.qr_path and Path(state.qr_path).exists():
+            return state.qr_path
+        return None
+
+    def qr_bind_cancel(self, account_id: int) -> dict[str, Any]:
+        state = self._qr_sessions.get(account_id)
+        if not state:
+            return {"ok": False, "error": "没有进行中的绑定会话"}
+        state.stop = True
+        return {"ok": True}

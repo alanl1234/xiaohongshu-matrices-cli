@@ -78,6 +78,7 @@
     <td>{{ account.last_verified_at or '—' }}</td>
     <td class="actions">
       <form method="post" action="/accounts/{{ account.id }}/bind"><button class="secondary">扫码绑定</button></form>
+      <button class="secondary" type="button" onclick="openQrBind({{ account.id }})">网页扫码</button>
       <form method="post" action="/accounts/{{ account.id }}/verify"><button class="secondary">验证</button></form>
       <form method="post" action="/accounts/{{ account.id }}/repair-profile"><button class="ghost">修复档案锁</button></form>
       <form method="post" action="/accounts/{{ account.id }}/toggle"><button class="ghost">{{ '停用' if account.enabled else '启用' }}</button></form>
@@ -89,4 +90,71 @@
   {% endfor %}
   </tbody>
 </table></div></section>
+
+<div id="qrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px 28px;max-width:360px;width:90%;position:relative;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <button onclick="closeQrBind()" style="position:absolute;top:10px;right:14px;border:none;background:none;font-size:22px;cursor:pointer;color:#999" title="关闭">&times;</button>
+    <h3 style="margin:0 0 6px">网页扫码登录</h3>
+    <p style="color:#666;font-size:13px;margin:0 0 16px">用小红书 App 扫描下方二维码完成绑定（无需服务器桌面窗口）</p>
+    <img id="qrImg" alt="二维码" style="width:240px;height:240px;object-fit:contain;background:#f5f5f5;border-radius:8px">
+    <p id="qrStatus" style="margin:14px 0;font-size:14px;color:#333">正在生成二维码…</p>
+    <button onclick="cancelQrBind()" style="padding:8px 18px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer;color:#666">取消</button>
+  </div>
+</div>
+
+<script>
+let qrTimer = null;
+let qrAccountId = null;
+async function openQrBind(id) {
+  qrAccountId = id;
+  const resp = await fetch(`/accounts/${id}/qr-bind/start`, {method:'POST'});
+  const data = await resp.json();
+  if (!data.ok) { alert('启动失败：' + (data.error || '未知错误')); return; }
+  document.getElementById('qrModal').style.display = 'flex';
+  pollQr(id, data.token);
+}
+async function pollQr(id, token) {
+  const img = document.getElementById('qrImg');
+  const status = document.getElementById('qrStatus');
+  let lastState = '';
+  qrTimer = setInterval(async () => {
+    try {
+      const st = await (await fetch(`/accounts/${id}/qr-bind/status`)).json();
+      img.src = `/accounts/${id}/qr-bind/image?token=${encodeURIComponent(token)}&t=${Date.now()}`;
+      if (st.state !== lastState) {
+        lastState = st.state;
+        if (st.state === 'ready') {
+          status.textContent = '✅ 绑定成功！正在刷新…';
+          status.style.color = '#1e8449';
+        } else if (st.state === 'error' || st.state === 'expired' || st.state === 'cancelled') {
+          status.textContent = '❌ ' + (st.error || '绑定失败');
+          status.style.color = '#c0392b';
+        } else if (st.state === 'scanned') {
+          status.textContent = '📲 已扫描，请在手机上确认…';
+          status.style.color = '#b9770e';
+        } else {
+          status.textContent = '请用小红书 App 扫码…';
+          status.style.color = '#333';
+        }
+      }
+      if (st.state === 'ready') {
+        clearInterval(qrTimer); qrTimer = null;
+        setTimeout(() => { closeQrBind(); location.reload(); }, 1200);
+      } else if (['error','expired','cancelled'].includes(st.state)) {
+        clearInterval(qrTimer); qrTimer = null;
+      }
+    } catch (e) { /* transient network error — keep polling */ }
+  }, 2500);
+}
+async function cancelQrBind() {
+  if (qrAccountId !== null) {
+    await fetch(`/accounts/${qrAccountId}/qr-bind/cancel`, {method:'POST'}).catch(() => {});
+  }
+  closeQrBind();
+}
+function closeQrBind() {
+  if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
+  document.getElementById('qrModal').style.display = 'none';
+}
+</script>
 {% endblock %}

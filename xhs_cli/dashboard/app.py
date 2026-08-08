@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -343,6 +343,28 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     def bind_account(account_id: int):
         executor.submit(browsers.bind, account_id)
         return redirect("/accounts", "Login window started")
+
+    @app.post("/accounts/{account_id}/qr-bind/start")
+    def qr_bind_start(account_id: int):
+        """Start a headless, web-rendered QR-code bind session (no desktop window)."""
+        state = browsers.qr_bind_begin(account_id)
+        executor.submit(browsers.qr_bind_run, account_id, config.screenshots_dir)
+        return {"ok": True, "token": state.token, "state": state.state}
+
+    @app.get("/accounts/{account_id}/qr-bind/status")
+    def qr_bind_status_route(account_id: int):
+        return browsers.qr_bind_status(account_id)
+
+    @app.get("/accounts/{account_id}/qr-bind/image")
+    def qr_bind_image_route(account_id: int, token: str = ""):
+        path = browsers.qr_bind_image_path(account_id, token)
+        if not path:
+            raise HTTPException(status_code=404, detail="qr image not available")
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @app.post("/accounts/{account_id}/qr-bind/cancel")
+    def qr_bind_cancel_route(account_id: int):
+        return browsers.qr_bind_cancel(account_id)
 
     @app.post("/accounts/{account_id}/repair-profile")
     def repair_account_profile(account_id: int):
