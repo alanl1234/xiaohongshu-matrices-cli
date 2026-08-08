@@ -1,10 +1,12 @@
 """Creator commands: post, post-text, my-notes, delete."""
 
+import mimetypes
 import re
 from pathlib import Path
 
 import click
 
+from ..client_mixins import guess_video_mime, probe_video_duration
 from ..command_normalizers import resolve_topic_payload
 from ..formatter import (
     extract_note_id,
@@ -121,6 +123,182 @@ def post(
         ctx,
         action=_publish,
         render=lambda _data: print_success(f"Note published: {title}" + (" (private)" if is_private else "")),
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )
+
+
+@click.command("post-video")
+@click.option("--title", required=True, help="Video note title (≤20 chars)")
+@click.option(
+    "--video",
+    "video_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Video file path (mp4/mov/webm ...).",
+)
+@click.option(
+    "--cover",
+    "cover_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Cover image path (jpg/png).",
+)
+@click.option("--body", default="", help="Caption / description text shown under the video")
+@click.option("--topic", "topics_flag", multiple=True, help="Topic(s)/hashtag(s) to search and attach")
+@click.option(
+    "--topic-id",
+    "topic_ids_flag",
+    multiple=True,
+    help="强制话题 id（同 post 命令），KEYWORD=ID。",
+)
+@click.option(
+    "--duration",
+    default=None,
+    type=float,
+    help="Video duration in seconds. Auto-detected from mp4 if omitted; "
+    "required for non-mp4 files when auto-detection fails.",
+)
+@click.option("--private", "is_private", is_flag=True, help="Publish as private note")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate files + resolve topics + probe duration, but do NOT upload or publish.",
+)
+@structured_output_options
+@click.pass_context
+def post_video(
+    ctx,
+    title: str,
+    video_path: str,
+    cover_path: str,
+    body: str,
+    topics_flag: tuple[str, ...],
+    topic_ids_flag: tuple[str, ...],
+    duration: float | None,
+    is_private: bool,
+    dry_run: bool,
+    as_json: bool,
+    as_yaml: bool,
+):
+    """Publish a video note.
+
+    Uploads the video + cover image through the same permit pipeline used by
+    image notes, then submits a ``type=video`` note via ``create_video_note``.
+
+    \b
+    Examples:
+        xhs post-video --title "..." --video clip.mp4 --cover cover.jpg --private
+        xhs post-video --title "..." --video clip.mp4 --cover cover.jpg --dry-run
+    """
+    if len(title) > 20:
+        raise click.UsageError(
+            f"标题长度 {len(title)} 超过小红书视频笔记限制 20 字；请精简标题。"
+        )
+
+    # Resolve the duration: explicit --duration wins, else probe the mp4.
+    if duration is None:
+        probed = probe_video_duration(video_path)
+        if probed is None:
+            raise click.UsageError(
+                "无法自动识别视频时长（仅支持 mp4/m4v 自动解析）。"
+                "请用 --duration 秒数 显式指定，例如 --duration 12.5"
+            )
+        duration = probed
+        print_info(f"视频时长自动识别为 {duration:.2f}s")
+
+    if dry_run:
+        print_info("Dry-run: 校验通过，未上传/发布。")
+        payload = {
+            "dry_run": True,
+            "title": title,
+            "video_path": video_path,
+            "cover_path": cover_path,
+            "video_ts": duration,
+            "is_private": is_private,
+            "topics": list(topics_flag),
+        }
+        if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
+            print_success(
+                f"[dry-run] 将发布视频笔记：{title}（时长 {duration:.2f}s，"
+                f"{'私密' if is_private else '公开'}）"
+            )
+        return
+
+    def _publish(client):
+        # 1) Upload the video.
+        print_info(f"Uploading video {video_path}...")
+        v_permit = client.get_upload_permit(file_type="video", count=1)
+        client.upload_file(
+            v_permit["fileId"], v_permit["token"], video_path,
+            content_type=guess_video_mime(video_path),
+        )
+        print_success(f"Uploaded video: {video_path}")
+
+        # 2) Upload the cover image.
+        print_info(f"Uploading cover {cover_path}...")
+        c_permit = client.get_upload_permit(file_type="image", count=1)
+        client.upload_file(
+            c_permit["fileId"], c_permit["token"], cover_path,
+            content_type=mimetypes.guess_type(cover_path)[0] or "image/jpeg",
+        )
+        print_success(f"Uploaded cover: {cover_path}")
+
+        # 3) Resolve topics (mirror the image `post` flow).
+        body_hashtags = extract_hashtags(body)
+        all_topics = list(topics_flag) + body_hashtags
+        unique_topics = list(dict.fromkeys(all_topics))
+        if len(unique_topics) > 10:
+            print_info(f"Found {len(unique_topics)} topics, using first 10")
+            unique_topics = unique_topics[:10]
+
+        explicit_ids: dict[str, str] = {}
+        for raw in topic_ids_flag:
+            if "=" in raw:
+                key, val = raw.split("=", 1)
+                explicit_ids[key.strip()] = val.strip()
+
+        resolved_topics = []
+        unresolved: list[str] = []
+        for t in unique_topics:
+            payload, miss = resolve_topic_payload(
+                client, t, explicit_id=explicit_ids.get(t)
+            )
+            if payload:
+                resolved_topics.append(payload)
+            if miss:
+                unresolved.append(miss)
+
+        if unresolved:
+            print_warning(
+                f"{len(unresolved)} 个话题未能关联到可点击链接，将作为纯文字发布（不可点击）："
+                + "、".join(f"#{u}" for u in unresolved)
+                + "。可用 --topic-id 关键字=ID 强制关联。"
+            )
+
+        # 4) Publish the video note.
+        result = client.create_video_note(
+            title=title,
+            desc=body,
+            video_file_id=v_permit["fileId"],
+            cover_file_id=c_permit["fileId"],
+            topics=resolved_topics or None,
+            is_private=is_private,
+            video_ts=duration,
+        )
+        result = dict(result) if isinstance(result, dict) else {"raw": result}
+        result["unresolved_topics"] = [f"#{u}" for u in unresolved]
+        result["video_ts"] = duration
+        return result
+
+    handle_command(
+        ctx,
+        action=_publish,
+        render=lambda _data: print_success(
+            f"Video note published: {title}"
+            + (f" ({duration:.2f}s)" if duration else "")
+            + (" (private)" if is_private else "")
+        ),
         as_json=as_json,
         as_yaml=as_yaml,
     )

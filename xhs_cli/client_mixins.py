@@ -46,6 +46,77 @@ def desc_or_first_para(body: str, fallback: str = "") -> str:
     picked = _first_paragraph(body)
     return picked if picked else fallback
 
+
+def _find_mp4_atom(data: bytes, name: bytes, start: int = 0, end: int | None = None):
+    """Locate a top-level MP4 atom by 4-byte ``name``.
+
+    Returns ``(offset, atom_end)`` or ``None``. Handles 64-bit extended sizes.
+    ``start``/``end`` let the search be scoped to a parent atom (e.g. ``moov``).
+    """
+    end = end if end is not None else len(data)
+    i = start
+    while i + 8 <= end and i + 8 <= len(data):
+        size = int.from_bytes(data[i : i + 4], "big")
+        atom = data[i + 4 : i + 8]
+        if atom == name:
+            atom_end = i + size if 0 < size < (len(data) - i + 8) else end
+            return (i, atom_end)
+        if size == 0:
+            break
+        if size == 1:  # 64-bit extended size
+            if i + 16 <= len(data):
+                size = int.from_bytes(data[i + 8 : i + 16], "big")
+                i += size
+            else:
+                break
+        else:
+            i += size
+    return None
+
+
+def probe_video_duration(path: str | Path) -> float | None:
+    """Best-effort video duration in seconds via pure-Python MP4 ``mvhd`` parse.
+
+    No external dependency (ffprobe/opencv). Returns ``None`` for containers
+    that are not a parseable MP4/M4V, in which case the caller must ask the
+    user for an explicit ``--duration``.
+    """
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+
+    moov = _find_mp4_atom(data, b"moov")
+    if moov is None:
+        return None
+    mvhd = _find_mp4_atom(data, b"mvhd", start=moov[0] + 8, end=moov[1])
+    if mvhd is None:
+        return None
+
+    off = mvhd[0] + 8  # skip (size + 'mvhd')
+    version = data[off]
+    off += 4  # version(1) + flags(3)
+    if version == 1:
+        off += 16  # creation + modification (uint64 each)
+        timescale = int.from_bytes(data[off : off + 4], "big")
+        off += 4
+        duration = int.from_bytes(data[off : off + 8], "big")
+    else:
+        off += 8  # creation + modification (uint32 each)
+        timescale = int.from_bytes(data[off : off + 4], "big")
+        off += 4
+        duration = int.from_bytes(data[off : off + 4], "big")
+
+    if timescale <= 0:
+        return None
+    return duration / timescale
+
+
+def guess_video_mime(path: str | Path) -> str:
+    """Best-guess the upload Content-Type for a video file."""
+    return mimetypes.guess_type(str(path))[0] or "video/mp4"
+
 _SEARCH_DEFAULT_FILTERS = [
     {"tags": ["general"], "type": "sort_type"},
     {"tags": ["不限"], "type": "filter_note_type"},
@@ -674,6 +745,79 @@ class CreatorEndpointsMixin:
             },
             "image_info": {"images": images},
             "video_info": None,
+        }
+        return self._main_api_post(
+            "/web_api/sns/v2/note",
+            data,
+            {
+                "origin": CREATOR_HOST,
+                "referer": f"{CREATOR_HOST}/",
+            },
+        )
+
+    def create_video_note(
+        self,
+        title: str,
+        desc: str,
+        video_file_id: str,
+        cover_file_id: str,
+        topics: list[dict[str, str]] | None = None,
+        is_private: bool = False,
+        video_ts: float = 0.0,
+    ) -> Any:
+        """Publish a video note.
+
+        The caller is responsible for uploading the video and its cover image
+        (see :meth:`get_upload_permit` / :meth:`upload_file`) and passing the
+        resulting ``file_id`` values — mirroring how :meth:`create_image_note`
+        consumes already-uploaded ``image_file_ids``.
+
+        Parameters
+        ----------
+        title : str
+            Note title (Xiaohongshu caps this at 20 characters for video notes).
+        desc : str
+            Caption / description text shown under the video.
+        video_file_id : str
+            ``file_id`` returned by uploading the video via the permit pipeline.
+        cover_file_id : str
+            ``file_id`` returned by uploading the cover image.
+        topics : list[dict] | None
+            Topic payloads returned by ``resolve_topic_payload``.
+        is_private : bool
+            When True, publish as a private note (only the author sees it).
+        video_ts : float
+            Video duration in seconds. Used by the web creator API; when 0 the
+            server typically recomputes it from the uploaded file.
+        """
+        business_binds = {
+            "version": 1,
+            "noteId": 0,
+            "noteOrderBind": {},
+            "notePostTiming": {"postTime": None},
+            "noteCollectionBind": {"id": ""},
+        }
+        data = {
+            "common": {
+                "type": "video",
+                "title": title,
+                "note_id": "",
+                "desc": desc,
+                "source": '{"type":"web","ids":"","extraInfo":"{\\"subType\\":\\"official\\"}"}',
+                "business_binds": json.dumps(business_binds),
+                "ats": [],
+                "hash_tag": topics or [],
+                "post_loc": {},
+                "privacy_info": {"op_type": 1, "type": 1 if is_private else 0},
+            },
+            "image_info": {
+                "images": [{"file_id": cover_file_id, "metadata": {"source": -1}}]
+            },
+            "video_info": {
+                "file_id": video_file_id,
+                "cover_image_id": cover_file_id,
+                "video_ts": video_ts,
+            },
         }
         return self._main_api_post(
             "/web_api/sns/v2/note",
